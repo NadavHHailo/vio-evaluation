@@ -1,0 +1,26 @@
+# Build artifacts
+build/
+install/
+*.o
+*.so
+*.a
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# Logs and results (results live in ~/results/ by convention, but guard against accidental in-tree dumps)
+*.log
+*.tmp
+results/
+__pycache__/
+*.pyc
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
