@@ -4,6 +4,16 @@ Comparative evaluation of four visual-inertial estimation systems on EuRoC MAV: 
 
 Companion to [`NadavHHailo/open_vins`](https://github.com/NadavHHailo/open_vins) and the existing `catkin_ws_ov` ROS 2 workspace. Where `catkin_ws_ov` benchmarks OpenVINS in isolation ([cross-platform.md](https://github.com/NadavHHailo/openvins-ros2-workspace/blob/master-candidate/docs/cross-platform/cross-platform.md)), this repo extends that work to a four-way comparison.
 
+## Why this repo exists (prior art)
+
+A unified, runnable open-source harness comparing OpenVINS, Basalt, ORB-SLAM3, and SchurVINS doesn't exist publicly. What does exist:
+
+- **Academic comparisons in paper form**, not runnable: the canonical [Delmerico & Scaramuzza, ICRA 2018](https://rpg.ifi.uzh.ch/docs/ICRA18_Delmerico.pdf) benchmark compared MSCKF/OKVIS/ROVIO/VINS-Mono/SVO+MSF — all of our four target systems are newer (Basalt 2020, OpenVINS 2020, ORB-SLAM3 2021, SchurVINS 2024) and aren't covered.
+- **Each system's own paper** publishes an EuRoC comparison table, but each picks its own competitors and harness. The [SchurVINS CVPR 2024 paper](https://openaccess.thecvf.com/content/CVPR2024/papers/Fan_SchurVINS_Schur_Complement-Based_Lightweight_Visual_Inertial_Navigation_System_CVPR_2024_paper.pdf) publishes ATE/runtime tables against OpenVINS (Table 2), but the [SchurVINS GitHub release](https://github.com/bytedance/SchurVINS) only exposes the code, not the comparison harness that produced those numbers — so the tables can't be independently re-run without rebuilding the evaluation pipeline from scratch (which is what this repo does).
+- **Open-source evaluation tooling** is post-hoc only: [`rpg_trajectory_evaluation`](https://github.com/uzh-rpg/rpg_trajectory_evaluation), [`evo`](https://github.com/MichaelGrupp/evo), and [`ov_eval`](https://github.com/rpng/open_vins/tree/master/ov_eval) (which this repo reuses) all compute ATE/RPE from a pair of trajectory files. None of them build, run, or instrument the VIO systems for you.
+
+`vio-evolution` is the missing harness layer between the system code and the evaluation tools.
+
 ## The plan in one paragraph
 
 Treat OpenVINS as the baseline — it already produces per-frame timing CSVs, TUM trajectories, and ATE/RPE via `ov_eval error_singlerun` on x86 and RPi5. Build a sibling harness here that runs each of the other three systems through the same EuRoC sequences against the same ground truth file, normalizes their outputs into the same four files (`<seq>_trajectory.txt`, `<seq>_timing.csv`, `<seq>_proc.csv`, `<seq>_stdout.log`), and aggregates everything into a single side-by-side comparison report. Phased rollout by integration friction: ORB-SLAM3 first (standalone CMake, validates the harness), then Basalt (also standalone CMake), then SchurVINS (ROS 1 Melodic in a Docker container — heaviest friction). x86 only for now; embedded targets reuse the harness later.
