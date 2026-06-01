@@ -1,0 +1,4 @@
+[submodule "systems/orb_slam3"]
+	path = systems/orb_slam3
+	url = git@github.com:NadavHHailo/ORB_SLAM3.git
+	branch = vio-eval-build

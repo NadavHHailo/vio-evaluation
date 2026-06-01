@@ -94,7 +94,7 @@ The four systems consume two distinct on-disk formats. They wrap the **same unde
 
 ### Per-system runner contract
 
-`run_system.sh <system> <seq>` must produce all four output files. Anything system-specific (build env, EuRoC config path, output post-processing) lives inside a per-system thin wrapper called by `run_system.sh`. The wrapper's job: launch the binary, capture timing, run the adapter, write the four canonical files.
+Each per-system runner must produce all four output files. The runner launches the binary, captures timing, runs the adapter, and writes the four canonical files. **Runners live in the outer repo at `scripts/run_<system>.sh`** (e.g. `scripts/run_orb_slam3.sh`) — *not* inside `systems/<system>/`, because that directory is the system's submodule and a file there would belong to the fork, not to `vio-evaluation`.
 
 ### Resource footprint capture
 
@@ -158,27 +158,16 @@ zips" step is not executable. Two workarounds, both verified:
    - `git -c safe.bareRepository=all --git-dir=/tmp/basalt-mirror push --mirror git@github.com:NadavHHailo/basalt.git`
    - (`--git-dir` + `safe.bareRepository=all` needed because the host git sets `safe.bareRepository=explicit`.) Landed `master` (`0f3b2b5`) + tags 0.1.0–0.1.7. Note the mirror also copied GitLab `refs/merge-requests/*` and `refs/pipelines/*` — harmless, ignore.
 
-### Phase 1 — Harness validation on ORB-SLAM3 (smoothest first)
+### Phase 1 — Harness validation on ORB-SLAM3 ✅ VALIDATED on V1_01_easy
 
-ORB-SLAM3 first because: ships a ready-made `Examples/Stereo-Inertial/stereo_inertial_euroc` with EuRoC configs (`EuRoC.yaml`) and `EuRoC_TimeStamps/<seq>.txt`, emits per-frame TUM trajectory output, and has the largest community → least time spent debugging build issues. Validating the full harness end-to-end here de-risks the other two.
+ORB-SLAM3 first because: ships a ready-made `Examples/Stereo-Inertial/stereo_inertial_euroc`, emits per-frame trajectory output, and has the largest community. Validating the full harness end-to-end here de-risks the other two.
 
-**Prerequisites** (must complete before Phase 1 starts):
-- **Phase 0b** for at least `V1_01_easy` — ORB-SLAM3 reads the EuRoC **ASL folder** (`mav0/cam0/data/*.png` + `mav0/imu0/data.csv`), not the `.db3` bag. Only `~/datasets/euroc/<seq>/<seq>.db3` exists today; `~/datasets/euroc-asl/V1_01_easy/mav0/...` must be present. (Full 3-sequence download can lag behind; one sequence unblocks validation.)
-- **Phase 0c** — `NadavHHailo/ORB_SLAM3` fork created, because step 4 (timing) needs a source patch.
+**As built (deviations from the original sketch noted inline):**
+1. ✅ **Submodule + build.** `systems/orb_slam3` → `NadavHHailo/ORB_SLAM3` @ `v1.0-release`, on branch `vio-eval-build`. Pangolin **v0.6** built from source to `~/opt/pangolin` (v0.6, not v0.8 — uses the present GLEW/X11, no apt/sudo). ORB-SLAM3 patches were minimal: **C++14** (not C++11), drop Sophus `-Werror`; no OpenCV-4 code patches needed. Full recipe in [`docs/build-orb-slam3.md`](/home/hailo/workspace/vio-evaluation/docs/build-orb-slam3.md).
+2. ✅ **Runner** lives at [`scripts/run_orb_slam3.sh`](/home/hailo/workspace/vio-evaluation/scripts/run_orb_slam3.sh) — **NOT** `systems/orb_slam3/run.sh`: that path is the submodule, so a runner there would belong to the fork. Per-system runners live in the outer repo's `scripts/`. It generates the timestamps file from our own ASL cam0 frames (the shipped `EuRoC_TimeStamps/*.txt` use float-rounded ns that don't match our bag-derived PNG names), runs the binary headless (`bUseViewer=false` already in the example), wraps it in `/usr/bin/time -v` → `<seq>_proc.csv`, and writes per-rep canonical files under `~/results/orb_slam3/x86/native_jazzy/<tag>/`.
+3. ✅ **Adapter** [`scripts/adapters/orb_slam3_to_tum.py`](/home/hailo/workspace/vio-evaluation/scripts/adapters/orb_slam3_to_tum.py): ORB-SLAM3's `f_<seq>.txt` is TUM-ordered but timestamped in **nanoseconds** → divide by 1e9 → `<seq>_trajectory.txt`; asserts 8 cols + GT time-overlap.
 
-Steps:
-1. **Submodule + build.** Add ORB-SLAM3 as a submodule at `systems/orb_slam3/` (`git submodule add git@github.com:NadavHHailo/ORB_SLAM3.git systems/orb_slam3`), pinned to a known-good tag (e.g. `v1.0-release`). Build natively on x86 — deps: Pangolin, OpenCV ≥3 (4.x builds but needs the well-known `CV_LOAD_IMAGE_*` / C++14 compat patches), Eigen3, vendored DBoW2/g2o/Sophus; `-DCMAKE_BUILD_TYPE=Release`. Capture the exact incantation + every patch in `docs/build-orb-slam3.md`.
-2. **Runner** `systems/orb_slam3/run.sh` — invokes:
-   ```
-   Examples/Stereo-Inertial/stereo_inertial_euroc \
-     Vocabulary/ORBvoc.txt \
-     Examples/Stereo-Inertial/EuRoC.yaml \
-     ~/datasets/euroc-asl/<seq> \
-     Examples/Stereo-Inertial/EuRoC_TimeStamps/<seq>.txt \
-     dataset-<seq>_stereoi
-   ```
-   Outputs `f_dataset-<seq>_stereoi.txt` (per-frame trajectory, TUM, seconds — **use this for ATE**) and `kf_dataset-<seq>_stereoi.txt` (keyframe only). Wrap the launch in `/usr/bin/time -v` → `<seq>_proc.csv`. Write all four canonical files under `~/results/orb_slam3/x86/native_jazzy/<tag>/`.
-3. **Adapter** `adapters/orb_slam3_to_tum.py`: `f_*.txt` is already TUM in seconds → copy + rename to `<seq>_trajectory.txt`; assert 8 columns and that its timestamp range overlaps the GT (`ov_data/euroc_mav/<seq>.txt`, also seconds). Flag/divide if timestamps come out in ns.
+**Alignment**: the harness evaluates **all** systems with `se3` (not `posyaw`). ORB-SLAM3's output frame differs from the EuRoC GT by a full 3D rotation, so `posyaw` gave a bogus 1.72 m; `se3` gives **0.020 m** ATE pos RMSE on V1_01_easy (sim3 0.011 m, RPE ~3 cm/8 m) — paper ballpark. `compare_report.py` recomputes OpenVINS with `se3` too (does not touch `cross-platform.md`'s `posyaw` record).
 4. **Timing patch** (the fork's reason to exist): the example main accumulates `vdTrackTotal_ms` / `vdLocalMapTrack_ms` but only prints median/mean at shutdown. Patch it to dump per-frame `timestamp,frontend,backend,total` → `<seq>_timing.csv` (frontend = tracking, backend = local mapping), matching OpenVINS' frontend/backend separation discipline. Bag/PNG decode time stays out of these numbers.
 5. **Smoke test**: V1_01_easy × 5 reps, then all three × 5 reps once V1_01 looks right. ATE via the reused `error_singlerun` path (TUM input, no `_est_to_tum`). Expect sub-10 cm RMSE (ORB-SLAM3 paper ≈ 0.04 m on V1_01_easy stereo-inertial).
 6. **Gate**: harness is valid when `compare_report.py` emits a table with both `openvins` and `orb_slam3` rows side-by-side — OpenVINS from `~/results/x86/native_jazzy/<tag>/<mode>/<seq>_<N>thr_est.txt` (via `_est_to_tum`), ORB-SLAM3 from `~/results/orb_slam3/x86/native_jazzy/<tag>/<seq>_trajectory.txt` (TUM direct). Timing CSV ≥ 2000 rows. (Note the loop-closure caveat — see Out of scope.)
@@ -233,7 +222,7 @@ Once OpenVINS results exist at `~/results/x86/native_jazzy/<tag>/<mode>/` and th
 - `vio-evaluation/scripts/run_system.sh` — entrypoint dispatcher.
 - `vio-evaluation/scripts/adapters/{orb_slam3,basalt,schurvins}_to_tum.py` — trajectory converters.
 - `vio-evaluation/scripts/compare_report.py` — cross-system aggregator; imports `parse_results.py` for ATE/RPE + timing (no separate `run_eval.sh` shell wrapper needed).
-- `vio-evaluation/systems/<system>/run.sh` — per-system launcher (3 files).
+- `vio-evaluation/scripts/run_<system>.sh` — per-system launcher (3 files; in the outer repo, not inside the submodule).
 - `vio-evaluation/docs/{build-orb-slam3,build-basalt,build-schurvins,comparison}.md`.
 
 **Existing untouched**:
