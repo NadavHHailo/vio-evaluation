@@ -26,6 +26,7 @@ Don't fold three new systems into `catkin_ws_ov/src/` — their dep stacks (Pang
       basalt/                      # submodule → NadavHHailo/basalt    (fork of VladyslavUsenko/basalt)
       schurvins/                   # submodule → NadavHHailo/SchurVINS (fork of bytedance/SchurVINS)
     scripts/
+      db3_to_asl.py                # reconstruct EuRoC ASL layout from a ROS 2 .db3 (ETH host dead)
       run_system.sh                # entrypoint: <system> <seq> [--reps N]
       adapters/
         orb_slam3_to_tum.py        # f_*.txt (per-frame TUM) → canonical TUM
@@ -113,18 +114,40 @@ All three new systems are non-deterministic by default (multi-threaded frontends
 2. ✅ Local clone at `/home/hailo/workspace/vio-evaluation/` with skeleton (`systems/`, `scripts/adapters/`, `docs/`), `README.md`, `.gitignore`, and `docs/plan.md` (copy of this file).
 3. ✅ Initial commit `72707c5` pushed to `origin/main`.
 
-### Phase 0b — Dataset preparation (ASL + ROS 1 .bag alongside .db3)
+### Phase 0b — Dataset preparation (ASL + ROS 1 .bag alongside .db3) ✅ ASL DONE; ROS 1 bags deferred to Phase 3
 
-Currently `~/datasets/euroc/` contains only ROS 2 bags. Need to add two more formats side-by-side: ASL for ORB-SLAM3/Basalt, and ROS 1 `.bag` for SchurVINS.
+`~/datasets/euroc/` had only ROS 2 bags. Added two more formats side-by-side: ASL for
+ORB-SLAM3/Basalt, ROS 1 `.bag` for SchurVINS.
 
-1. Download the three EuRoC ASL zips from the ETH page (https://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) into `~/datasets/euroc-asl/`:
-   - `V1_01_easy.zip` (~1.4 GB), `MH_03_medium.zip` (~1.5 GB), `V2_02_medium.zip` (~1.6 GB).
-   - Unzip each into `~/datasets/euroc-asl/<seq>/` so the layout is `~/datasets/euroc-asl/<seq>/mav0/{cam0,cam1,imu0,state_groundtruth_estimate0}/...`.
-2. Download the three EuRoC ROS 1 bags from the same ETH page into `~/datasets/euroc-ros1/`:
-   - `V1_01_easy.bag`, `MH_03_medium.bag`, `V2_02_medium.bag` (similar sizes to the .db3 bags).
-3. Verify the ASL `state_groundtruth_estimate0/data.csv` and the existing `catkin_ws_ov/src/open_vins/ov_data/euroc_mav/<seq>.txt` refer to the same trajectory (sanity check — they should, modulo OpenVINS' format conversion).
+**The canonical ETH download host `robotics.ethz.ch` is dead** (port 80 times out; DNS resolves
+but no TCP). It is the only published source of the ASL `.zip` archives, and the
+`projects.asl.ethz.ch` landing page only links back to it. So the original "download the ASL
+zips" step is not executable. Two workarounds, both verified:
 
-This keeps `~/datasets/euroc/` (existing `.db3` path for OpenVINS) untouched. Total additional disk: ~9 GB across the three sequences in two formats.
+1. ✅ **ASL — reconstructed locally from the existing `.db3`** (no download). The ROS 2 bag
+   already carries `/cam0/image_raw`, `/cam1/image_raw`, `/imu0` — the same frames/IMU OpenVINS
+   benchmarks against. [`scripts/db3_to_asl.py`](/home/hailo/workspace/vio-evaluation/scripts/db3_to_asl.py)
+   (ROS 2 `rosbag2_py` + `cv_bridge`) writes the EuRoC ASL layout
+   `~/datasets/euroc-asl/<seq>/mav0/{cam0,cam1}/data/<ts_ns>.png` (+ `data.csv`) and
+   `mav0/imu0/data.csv`. Frame counts match EuRoC exactly: V1_01_easy 2912, MH_03_medium 2700,
+   V2_02_medium 2348 stereo pairs (3.0 GB total). Calibration yamls are not in the bag and not
+   needed (ORB-SLAM3 ships `EuRoC.yaml`; Basalt takes `--cam-calib` JSON).
+2. **ROS 1 `.bag` — DEFERRED to Phase 3** (SchurVINS only; not on the Phase 1/2 critical path).
+   The ETH host is dead here too. The [OpenVINS datasets page](https://docs.openvins.com/gs-datasets.html)
+   mirrors each EuRoC ROS 1 bag on Google Drive (IDs: V1_01_easy `1LFrdiMU6UBjtFfXPHzjJ4L7iDIXcdhvh`,
+   MH_03_medium `1er07gZ8rso8R3Su00hJMm_GZ4z1n9Rpq`, V2_02_medium `1Gj4psmvcAwYwCp4T4CQH-d2ZVJ09d3x2`),
+   but `gdown` currently can't fetch them ("cannot retrieve public link" — Drive access-quota
+   throttling on these popular files). **Host-independent fallback** (preferred, mirrors the ASL
+   approach): convert the local `~/datasets/euroc/<seq>/<seq>.db3` → ROS 1 `.bag` with the
+   `rosbags` library (`rosbags-convert`). The db3 already has `/cam0/image_raw`, `/cam1/image_raw`,
+   `/imu0` — the exact topics SchurVINS' launch consumes — so no re-download is needed. Resolve
+   when Phase 3 begins.
+3. ✅ **GT sanity check**: reconstructed cam0 first timestamp `1403715273.262143 s` matches the GT
+   start in `ov_data/euroc_mav/V1_01_easy.txt` (`1403715273.26214`) to the microsecond — the bag
+   preserves original EuRoC sensor timestamps, so ORB-SLAM3's `EuRoC_TimeStamps/<seq>.txt` and the
+   GT will align. Images verified 480×752 mono8.
+
+`~/datasets/euroc/` (the `.db3` path for OpenVINS) is untouched. Added disk: ASL ~3 GB + ROS 1 bags ~8 GB.
 
 ### Phase 0c — Fork the three upstreams into NadavHHailo/
 
@@ -206,6 +229,7 @@ Once OpenVINS results exist at `~/results/x86/native_jazzy/<tag>/<mode>/` and th
 **New (to be created)**:
 - `vio-evaluation/` itself — `git init` + initial `.gitignore` (results/build artifacts).
 - `vio-evaluation/.gitmodules` — three submodules (orb_slam3, basalt, schurvins), pinned to upstream tags or fork commits.
+- `vio-evaluation/scripts/db3_to_asl.py` — ✅ created; reconstructs EuRoC ASL from the ROS 2 `.db3`.
 - `vio-evaluation/scripts/run_system.sh` — entrypoint dispatcher.
 - `vio-evaluation/scripts/adapters/{orb_slam3,basalt,schurvins}_to_tum.py` — trajectory converters.
 - `vio-evaluation/scripts/compare_report.py` — cross-system aggregator; imports `parse_results.py` for ATE/RPE + timing (no separate `run_eval.sh` shell wrapper needed).
