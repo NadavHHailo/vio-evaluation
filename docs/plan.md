@@ -149,14 +149,14 @@ zips" step is not executable. Two workarounds, both verified:
 
 `~/datasets/euroc/` (the `.db3` path for OpenVINS) is untouched. Added disk: ASL ~3 GB + ROS 1 bags ~8 GB.
 
-### Phase 0c — Fork the three upstreams into NadavHHailo/
+### Phase 0c — Fork the three upstreams into NadavHHailo/ ✅ DONE (all public)
 
-1. `NadavHHailo/ORB_SLAM3` — via GitHub web "Fork" button on https://github.com/UZ-SLAMLab/ORB_SLAM3 (no `gh` CLI installed).
-2. `NadavHHailo/SchurVINS` — via GitHub web "Fork" button on https://github.com/bytedance/SchurVINS.
-3. `NadavHHailo/basalt` — upstream is on GitLab. Mirror manually:
-   - Create empty `NadavHHailo/basalt` on GitHub web UI.
+1. ✅ `NadavHHailo/ORB_SLAM3` — forked from https://github.com/UZ-SLAMLab/ORB_SLAM3 via GitHub web UI (no `gh` CLI / API token on the box). Carried tags incl. `v1.0-release` (`0df83dd`) for pinning.
+2. ✅ `NadavHHailo/SchurVINS` — forked from https://github.com/bytedance/SchurVINS. HEAD `d8ab6df` (upstream has no tags → pin to this commit).
+3. ✅ `NadavHHailo/basalt` — upstream is on GitLab, so not a GitHub fork. Empty repo created via web UI, then mirrored locally over SSH:
    - `git clone --mirror https://gitlab.com/VladyslavUsenko/basalt.git /tmp/basalt-mirror`
-   - `cd /tmp/basalt-mirror && git push --mirror git@github.com:NadavHHailo/basalt.git`
+   - `git -c safe.bareRepository=all --git-dir=/tmp/basalt-mirror push --mirror git@github.com:NadavHHailo/basalt.git`
+   - (`--git-dir` + `safe.bareRepository=all` needed because the host git sets `safe.bareRepository=explicit`.) Landed `master` (`0f3b2b5`) + tags 0.1.0–0.1.7. Note the mirror also copied GitLab `refs/merge-requests/*` and `refs/pipelines/*` — harmless, ignore.
 
 ### Phase 1 — Harness validation on ORB-SLAM3 (smoothest first)
 
