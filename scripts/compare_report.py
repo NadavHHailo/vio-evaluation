@@ -135,12 +135,6 @@ def openvins_timing(wall_csv):
     return pr.percentile(ms_, 50), pr.percentile(ms_, 99), 1000.0 / statistics.mean(ms_)
 
 
-def openvins_cpu_pct(wall_csv, cpu_csv):
-    """Mean CPU as % of one core = total CPU-seconds / total wall-seconds * 100."""
-    wall, cpu = pr.parse_timing_csv(wall_csv), pr.parse_timing_csv(cpu_csv)
-    if not wall or not cpu:
-        return None
-    return 100.0 * sum(cpu) / sum(wall)
 
 
 # ─── aggregation helpers ───
@@ -194,18 +188,15 @@ def eval_orb(root, tag, seq, gt, align):
     return M, len(trajs)
 
 
-def eval_openvins(root, tag, seq, gt, align, thr):
-    """Read OpenVINS serial-mode outputs under <tag>/serial/<seq>_<thr>thr_*.
-    Accuracy from _est.txt; latency/FPS from _wall.txt; CPU from _cpu.txt;
-    completeness/init from _est.txt vs the canonical EuRoC frames. (RSS is not
-    captured by the OpenVINS harness → left blank.)"""
-    sdir = f"{root}/x86/native_jazzy/{tag}/serial"
-    est = f"{sdir}/{seq}_{thr}thr_est.txt"
-    if not os.path.exists(est):  # fall back to whatever thread count exists
-        cands = sorted(glob.glob(f"{sdir}/{seq}_*thr_est.txt"))
-        if not cands:
-            return new_metrics(), 0
-        est = cands[0]
+def eval_openvins(root, tag, seq, gt, align):
+    """Read OpenVINS outputs from run_openvins.sh under openvins/<arch>/<env>/<tag>/.
+    Accuracy from _est.txt (ov_eval); latency/FPS from _wall.txt; CPU% + peak RSS from
+    _proc.csv (/usr/bin/time -v — SAME method as ORB-SLAM3); completeness/init from
+    _est.txt vs the canonical EuRoC frames."""
+    base = f"{root}/openvins/x86/native_jazzy/{tag}"
+    est = f"{base}/{seq}_est.txt"
+    if not os.path.exists(est):
+        return new_metrics(), 0
     M = new_metrics()
     tum = pr._est_to_tum(est)
     try:
@@ -217,13 +208,12 @@ def eval_openvins(root, tag, seq, gt, align, thr):
     if rb:
         M["compl"].append(rb["compl"]); M["compl_post"].append(rb["compl_post"])
         M["init"].append(rb["init"])
-    wall, cpu = est.replace("_est.txt", "_wall.txt"), est.replace("_est.txt", "_cpu.txt")
-    ts = openvins_timing(wall)
+    ts = openvins_timing(f"{base}/{seq}_wall.txt")
     if ts:
         M["p50"].append(ts[0]); M["p99"].append(ts[1]); M["fps"].append(ts[2])
-    c = openvins_cpu_pct(wall, cpu)
-    if c is not None:
-        M["cpu"].append(c)
+    ps = proc_stats(f"{base}/{seq}_proc.csv")
+    if ps:
+        M["rss"].append(ps[0]); M["cpu"].append(ps[1])
     return M, 1
 
 
@@ -264,8 +254,6 @@ def main():
     ap.add_argument("--tag", default="baseline_x86")
     ap.add_argument("--align", default="se3")
     ap.add_argument("--seqs", default="V1_01_easy,MH_03_medium,V2_02_medium")
-    ap.add_argument("--openvins-thr", default="1",
-                    help="OpenVINS serial thread count to report (default 1 = single-thread)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -273,7 +261,7 @@ def main():
     rows = []
     for seq in args.seqs.split(","):
         gt = f"{GT_DIR}/{seq}.txt"
-        ovM, ovn = eval_openvins(args.root, args.tag, seq, gt, args.align, args.openvins_thr)
+        ovM, ovn = eval_openvins(args.root, args.tag, seq, gt, args.align)
         rows.append(("openvins", seq, ovM, ovn))
         orbM, orbn = eval_orb(args.root, args.tag, seq, gt, args.align)
         rows.append(("orb_slam3 (SLAM)", seq, orbM, orbn))
@@ -293,9 +281,11 @@ def main():
         "in **sequential** mode, reported as **(SLAM)** (loop closure on) and **(VIO-only)** "
         "(`loopClosing:0`). **x86 performance figures are illustrative** (DR: perf belongs on "
         "embedded HW); ORB-SLAM3's backend (local BA) is async, so latency/FPS reflect the "
-        "per-frame tracking front-end. **OpenVINS runs in serial mode, single-thread (1thr)**; "
-        "its latency/FPS use the per-frame `total` update time, and RSS is left blank (not "
-        "captured by the OpenVINS benchmark harness).",
+        "per-frame tracking front-end. **OpenVINS runs in serial mode, 4 threads**; latency/FPS "
+        "use its per-frame `total` update time, and CPU%/RSS come from `/usr/bin/time -v` — the "
+        "same whole-process method as ORB-SLAM3. Caveat: OpenVINS runs via `ros2 launch` + "
+        "rosbag2 (reading the `.db3`), so its CPU/RSS include that process-tree overhead, whereas "
+        "ORB-SLAM3 is a bare binary reading PNGs — RSS especially is an upper bound for OpenVINS.",
         "",
         "## §3.1 Summary (RPE columns = mean over segment lengths)",
         "",

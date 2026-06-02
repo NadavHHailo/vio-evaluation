@@ -244,10 +244,11 @@ End-to-end correctness gates (run after each phase):
 
 Reproducible end-to-end check (full sweep):
 ```bash
-# OpenVINS baseline: existing catkin harness, SERIAL mode, SINGLE thread (clean-accuracy,
-# deterministic; the DR's first-stage profiling). Writes ~/results/x86/native_jazzy/baseline_x86/serial/
-bash ~/workspace/catkin_ws_ov/scripts/run_full_benchmark.sh -m serial -t 1 -c stereo \
-  -s V1_01_easy,MH_03_medium,V2_02_medium --tag baseline_x86
+# OpenVINS: vio-eval runner (serial mode, 4 threads), wrapped in /usr/bin/time -v so
+# CPU%/RSS match ORB-SLAM3's measurement method. Writes ~/results/openvins/x86/native_jazzy/baseline_x86/
+for seq in V1_01_easy MH_03_medium V2_02_medium; do
+  bash vio-evaluation/scripts/run_openvins.sh "$seq" --tag baseline_x86 --thr 4
+done
 
 # ORB-SLAM3 (sequential mode; --vio-only for the loop-closure-off variant under <tag>_vioonly/):
 for seq in V1_01_easy MH_03_medium V2_02_medium; do
@@ -256,8 +257,8 @@ for seq in V1_01_easy MH_03_medium V2_02_medium; do
 done
 # (basalt / schurvins runners land in Phases 2/3.)
 
-# Aggregator (OpenVINS 1thr serial + ORB-SLAM3 SLAM/VIO-only; DR §3.1 + §2.6 RPE-over-segments):
-python3 vio-evaluation/scripts/compare_report.py --tag baseline_x86 --openvins-thr 1 \
+# Aggregator (OpenVINS + ORB-SLAM3 SLAM/VIO-only; DR §3.1 + §2.6 RPE-over-segments):
+python3 vio-evaluation/scripts/compare_report.py --tag baseline_x86 \
   --out vio-evaluation/docs/comparison.md
 ```
 
