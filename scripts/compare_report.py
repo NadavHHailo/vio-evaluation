@@ -73,13 +73,26 @@ def timing_stats(timing_csv):
     return pr.percentile(vals, 50), pr.percentile(vals, 99), 1000.0 / statistics.mean(vals)
 
 
-def completeness_pct(traj, times_file):
+def robustness_stats(traj, times_file):
+    """Return {compl, compl_post, init} :
+      compl       : poses / all input frames (%)            — DR completeness (#5)
+      compl_post  : poses / frames at-or-after the first pose (%) — tracking continuity once
+                    initialized (excludes the VI-init warm-up)
+      init        : seconds from first input frame to first output pose — DR init-time (#11)
+    """
     try:
-        npose = sum(1 for ln in open(traj) if ln.strip() and not ln.startswith("#"))
-        nframe = sum(1 for ln in open(times_file) if ln.strip())
-        return 100.0 * npose / nframe if nframe else None
+        poses = [float(ln.split()[0]) for ln in open(traj)
+                 if ln.strip() and not ln.startswith("#")]
+        frames = [float(ln) / 1e9 for ln in open(times_file) if ln.strip()]
     except OSError:
         return None
+    if not poses or not frames:
+        return None
+    first_pose, first_frame = poses[0], frames[0]
+    n_after = sum(1 for f in frames if f >= first_pose - 1e-6)
+    return {"compl": 100.0 * len(poses) / len(frames),
+            "compl_post": (100.0 * len(poses) / n_after) if n_after else None,
+            "init": max(0.0, first_pose - first_frame)}
 
 
 def track_loss(stdout_log):
@@ -116,7 +129,7 @@ def num(v, prec=1):
 
 
 def new_metrics():
-    return {k: [] for k in ("ate_ori", "ate_pos", "compl", "loss",
+    return {k: [] for k in ("ate_ori", "ate_pos", "compl", "compl_post", "init", "loss",
                             "p50", "p99", "fps", "cpu", "rss")} | \
            {"rpe_pos_seg": defaultdict(list), "rpe_ori_seg": defaultdict(list)}
 
@@ -136,7 +149,10 @@ def eval_orb(root, tag, seq, gt, align):
     M = new_metrics()
     for t in trajs:
         add_eval(M, run_eval(gt, t, align))
-        M["compl"].append(completeness_pct(t, times_file))
+        rb = robustness_stats(t, times_file)
+        if rb:
+            M["compl"].append(rb["compl"]); M["compl_post"].append(rb["compl_post"])
+            M["init"].append(rb["init"])
         M["loss"].append(track_loss(t.replace("_trajectory.txt", "_stdout.log")))
         ts = timing_stats(t.replace("_trajectory.txt", "_timing.csv"))
         if ts:
@@ -171,12 +187,14 @@ def summary_row(label, seq, M, n):
     p50, p99 = ms(M["p50"]), ms(M["p99"])
     lat = f"{p50[0]:.1f}/{p99[0]:.1f}" if p50 and p99 else "—"
     fps, cpu, rss = ms(M["fps"]), ms(M["cpu"]), ms(M["rss"])
-    compl, loss = ms(M["compl"]), ms(M["loss"])
+    compl, compl_post = ms(M["compl"]), ms(M["compl_post"])
+    init, loss = ms(M["init"]), ms(M["loss"])
     return "| " + " | ".join([
         label, seq,
         cell(ms(M["ate_pos"]), 3), cell(ms(M["ate_ori"]), 2),
         cell(flat_mean(M["rpe_pos_seg"]), 3), cell(flat_mean(M["rpe_ori_seg"]), 2),
-        num(compl[0] if compl else None, 1), num(loss[0] if loss else None, 1),
+        num(compl[0] if compl else None, 1), num(compl_post[0] if compl_post else None, 1),
+        num(init[0] if init else None, 2), num(loss[0] if loss else None, 1),
         lat, num(fps[0] if fps else None, 1),
         num(cpu[0] if cpu else None, 0), num(rss[0] if rss else None, 0), str(n),
     ]) + " |"
@@ -228,9 +246,12 @@ def main():
         "",
         "## §3.1 Summary (RPE columns = mean over segment lengths)",
         "",
-        "| System | Seq | ATE-t (m) | ATE-r (°) | RPE-t (m) | RPE-r (°) | Compl % | "
-        "Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "*Compl %* = poses ÷ all input frames; *Compl(p-i) %* = poses ÷ frames after the first "
+        "pose (tracking continuity, excludes the VI-init warm-up); *Init (s)* = time to first pose.",
+        "",
+        "| System | Seq | ATE-t (m) | ATE-r (°) | RPE-t (m) | RPE-r (°) | Compl % | Compl(p-i) % | "
+        "Init (s) | Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     L += [summary_row(lbl, seq, M, n) for lbl, seq, M, n in rows]
 
