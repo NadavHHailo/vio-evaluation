@@ -73,8 +73,23 @@ def timing_stats(timing_csv):
     return pr.percentile(vals, 50), pr.percentile(vals, 99), 1000.0 / statistics.mean(vals)
 
 
-def robustness_stats(traj, times_file):
-    """Return {compl, compl_post, init} :
+_FRAME_CACHE = {}
+
+
+def euroc_frames(seq):
+    """Canonical input-frame timestamps (s) for a sequence — the cam0 frames of the
+    shared EuRoC recording (same for every system). Cached per sequence."""
+    if seq not in _FRAME_CACHE:
+        d = os.path.expanduser(f"~/datasets/euroc-asl/{seq}/mav0/cam0/data")
+        ts = sorted(int(os.path.splitext(f)[0]) / 1e9 for f in os.listdir(d)
+                    if f.endswith(".png")) if os.path.isdir(d) else []
+        _FRAME_CACHE[seq] = ts
+    return _FRAME_CACHE[seq]
+
+
+def robustness_stats(traj, frames):
+    """Return {compl, compl_post, init} given a trajectory file (first column = timestamp,
+    works for TUM and OpenVINS state-dump) and the canonical input-frame timestamps:
       compl       : poses / all input frames (%)            — DR completeness (#5)
       compl_post  : poses / frames at-or-after the first pose (%) — tracking continuity once
                     initialized (excludes the VI-init warm-up)
@@ -83,7 +98,6 @@ def robustness_stats(traj, times_file):
     try:
         poses = [float(ln.split()[0]) for ln in open(traj)
                  if ln.strip() and not ln.startswith("#")]
-        frames = [float(ln) / 1e9 for ln in open(times_file) if ln.strip()]
     except OSError:
         return None
     if not poses or not frames:
@@ -110,6 +124,23 @@ def proc_stats(proc_csv):
         return float(r[h.index("peak_rss_kb")]) / 1024.0, float(r[h.index("pct_cpu")])
     except (OSError, IndexError, ValueError):
         return None
+
+
+def openvins_timing(wall_csv):
+    """(p50_ms, p99_ms, fps) from OpenVINS _wall.txt 'total' column (seconds)."""
+    secs = pr.parse_timing_csv(wall_csv)  # total column, seconds
+    if not secs:
+        return None
+    ms_ = [s * 1000.0 for s in secs]
+    return pr.percentile(ms_, 50), pr.percentile(ms_, 99), 1000.0 / statistics.mean(ms_)
+
+
+def openvins_cpu_pct(wall_csv, cpu_csv):
+    """Mean CPU as % of one core = total CPU-seconds / total wall-seconds * 100."""
+    wall, cpu = pr.parse_timing_csv(wall_csv), pr.parse_timing_csv(cpu_csv)
+    if not wall or not cpu:
+        return None
+    return 100.0 * sum(cpu) / sum(wall)
 
 
 # ─── aggregation helpers ───
@@ -145,11 +176,11 @@ def add_eval(M, e):
 def eval_orb(root, tag, seq, gt, align):
     base = f"{root}/{ORB_DIR}/{tag}"
     trajs = sorted(glob.glob(f"{base}/{seq}_rep*_trajectory.txt"))
-    times_file = f"{base}/{seq}_times.txt"
+    frames = euroc_frames(seq)
     M = new_metrics()
     for t in trajs:
         add_eval(M, run_eval(gt, t, align))
-        rb = robustness_stats(t, times_file)
+        rb = robustness_stats(t, frames)
         if rb:
             M["compl"].append(rb["compl"]); M["compl_post"].append(rb["compl_post"])
             M["init"].append(rb["init"])
@@ -163,18 +194,37 @@ def eval_orb(root, tag, seq, gt, align):
     return M, len(trajs)
 
 
-def eval_openvins(root, seq, gt, align, explicit):
-    ests = [explicit] if explicit else sorted(
-        glob.glob(f"{root}/**/subscribe/{seq}_*_est.txt", recursive=True))
+def eval_openvins(root, tag, seq, gt, align, thr):
+    """Read OpenVINS serial-mode outputs under <tag>/serial/<seq>_<thr>thr_*.
+    Accuracy from _est.txt; latency/FPS from _wall.txt; CPU from _cpu.txt;
+    completeness/init from _est.txt vs the canonical EuRoC frames. (RSS is not
+    captured by the OpenVINS harness → left blank.)"""
+    sdir = f"{root}/x86/native_jazzy/{tag}/serial"
+    est = f"{sdir}/{seq}_{thr}thr_est.txt"
+    if not os.path.exists(est):  # fall back to whatever thread count exists
+        cands = sorted(glob.glob(f"{sdir}/{seq}_*thr_est.txt"))
+        if not cands:
+            return new_metrics(), 0
+        est = cands[0]
     M = new_metrics()
-    for e in ests:
-        tum = pr._est_to_tum(e)
-        try:
-            add_eval(M, run_eval(gt, tum, align))
-        finally:
-            if tum and os.path.exists(tum):
-                os.remove(tum)
-    return M, len(ests)
+    tum = pr._est_to_tum(est)
+    try:
+        add_eval(M, run_eval(gt, tum, align))
+    finally:
+        if tum and os.path.exists(tum):
+            os.remove(tum)
+    rb = robustness_stats(est, euroc_frames(seq))
+    if rb:
+        M["compl"].append(rb["compl"]); M["compl_post"].append(rb["compl_post"])
+        M["init"].append(rb["init"])
+    wall, cpu = est.replace("_est.txt", "_wall.txt"), est.replace("_est.txt", "_cpu.txt")
+    ts = openvins_timing(wall)
+    if ts:
+        M["p50"].append(ts[0]); M["p99"].append(ts[1]); M["fps"].append(ts[2])
+    c = openvins_cpu_pct(wall, cpu)
+    if c is not None:
+        M["cpu"].append(c)
+    return M, 1
 
 
 # ─── rendering ───
@@ -214,7 +264,8 @@ def main():
     ap.add_argument("--tag", default="baseline_x86")
     ap.add_argument("--align", default="se3")
     ap.add_argument("--seqs", default="V1_01_easy,MH_03_medium,V2_02_medium")
-    ap.add_argument("--openvins-est", default=None)
+    ap.add_argument("--openvins-thr", default="1",
+                    help="OpenVINS serial thread count to report (default 1 = single-thread)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -222,8 +273,8 @@ def main():
     rows = []
     for seq in args.seqs.split(","):
         gt = f"{GT_DIR}/{seq}.txt"
-        ovM, ovn = eval_openvins(args.root, seq, gt, args.align, args.openvins_est)
-        rows.append(("openvins", seq, ovM, ovn))
+        ovM, ovn = eval_openvins(args.root, args.tag, seq, gt, args.align, args.openvins_thr)
+        rows.append((f"openvins ({args.openvins_thr}thr)", seq, ovM, ovn))
         orbM, orbn = eval_orb(args.root, args.tag, seq, gt, args.align)
         rows.append(("orb_slam3 (SLAM)", seq, orbM, orbn))
         vioM, vion = eval_orb(args.root, f"{args.tag}_vioonly", seq, gt, args.align)
@@ -242,7 +293,9 @@ def main():
         "in **sequential** mode, reported as **(SLAM)** (loop closure on) and **(VIO-only)** "
         "(`loopClosing:0`). **x86 performance figures are illustrative** (DR: perf belongs on "
         "embedded HW); ORB-SLAM3's backend (local BA) is async, so latency/FPS reflect the "
-        "per-frame tracking front-end.",
+        "per-frame tracking front-end. OpenVINS runs in **serial** mode (single-thread by "
+        "default); its latency/FPS use the per-frame `total` update time, and RSS is left "
+        "blank (not captured by the OpenVINS benchmark harness).",
         "",
         "## §3.1 Summary (RPE columns = mean over segment lengths)",
         "",
