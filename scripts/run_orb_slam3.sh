@@ -13,14 +13,15 @@
 # files use float-rounded ns that don't match our bag-derived names).
 set -euo pipefail
 
-usage() { echo "usage: run_orb_slam3.sh <seq> [--reps N] [--tag TAG]"; exit 1; }
+usage() { echo "usage: run_orb_slam3.sh <seq> [--reps N] [--tag TAG] [--realtime]"; exit 1; }
 [ $# -ge 1 ] || usage
 SEQ="$1"; shift
-REPS=1; TAG="baseline_x86"
+REPS=1; TAG="baseline_x86"; SEQUENTIAL=1
 while [ $# -gt 0 ]; do
   case "$1" in
-    --reps) REPS="$2"; shift 2;;
-    --tag)  TAG="$2";  shift 2;;
+    --reps)     REPS="$2"; shift 2;;
+    --tag)      TAG="$2";  shift 2;;
+    --realtime) SEQUENTIAL=0; shift;;   # default is sequential (DR clean-accuracy mode)
     *) usage;;
   esac
 done
@@ -42,10 +43,11 @@ done
 OUT="$HOME/results/orb_slam3/x86/native_jazzy/$TAG"
 mkdir -p "$OUT"
 export LD_LIBRARY_PATH="$HOME/opt/pangolin/lib:$ORB/lib:$ORB/Thirdparty/DBoW2/lib:$ORB/Thirdparty/g2o/lib:${LD_LIBRARY_PATH:-}"
+if [ "$SEQUENTIAL" = 1 ]; then export VIO_EVAL_SEQUENTIAL=1; MODE=sequential; else unset VIO_EVAL_SEQUENTIAL; MODE=realtime; fi
 
 TIMES="$OUT/${SEQ}_times.txt"
 ls "$ASL/mav0/cam0/data/" | sed 's/\.png$//' | sort -n > "$TIMES"
-echo "[$SEQ] $(wc -l < "$TIMES") frames; reps=$REPS; out=$OUT"
+echo "[$SEQ] $(wc -l < "$TIMES") frames; reps=$REPS; mode=$MODE; out=$OUT"
 
 for i in $(seq 0 $((REPS-1))); do
   WORK="$(mktemp -d)"
