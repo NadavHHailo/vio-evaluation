@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
-"""Cross-system comparison report aligned to the Evaluation-DR §3.1 metric table.
+"""Cross-system comparison report aligned to the Evaluation-DR (§3.1 metrics + §2.6 RPE-over-segments).
 
 Reports, per (system, sequence), aggregated over reps with one alignment mode for
 all systems (se3 default):
 
-  Accuracy   : ATE-trans (m), ATE-rot (deg), RPE-trans (m/seg), RPE-rot (deg/seg)
-  Robustness : trajectory completeness (%), track-loss / re-init count
-  Performance: latency p50/p99 (ms/frame), throughput (FPS), CPU (%), peak RSS (MB)
+  §3.1 summary : ATE-trans (m), ATE-rot (deg), RPE-trans/rot (mean over segments),
+                 completeness (%), track-loss, latency p50/p99 (ms), FPS, CPU (%), peak RSS (MB)
+  §2.6 detail  : RPE-translation (m) and RPE-rotation (deg) per segment length
+                 (8/16/24/32/40 m), the standard VIO drift-rate-over-distance view.
 
-Reuses catkin_ws_ov/scripts/parse_results.py (_run_ros2, _est_to_tum, _ANSI_RE,
-_RPE_RE) for the ov_eval plumbing. Accuracy uses ov_eval error_singlerun; timing
-comes from the per-rep <seq>_timing.csv (ORB-SLAM3) and resource from <seq>_proc.csv.
-
-NOTE: x86 performance numbers are illustrative (the DR calls perf profiling on
-desktop CPUs "un-useful" — embedded HW is the real target). Accuracy is the headline.
+Reuses catkin_ws_ov/scripts/parse_results.py (_run_ros2, _est_to_tum, _ANSI_RE, _RPE_RE)
+for the ov_eval plumbing. ORB-SLAM3 is reported in two variants: (SLAM) = full pipeline,
+(VIO-only) = loopClosing:0. x86 performance figures are illustrative (DR: perf profiling
+belongs on embedded HW).
 
 Usage:
   compare_report.py [--root ~/results] [--tag baseline_x86] [--align se3]
@@ -24,6 +23,7 @@ import glob
 import os
 import statistics
 import sys
+from collections import defaultdict
 
 CATKIN_SCRIPTS = os.path.expanduser("~/workspace/catkin_ws_ov/scripts")
 sys.path.insert(0, CATKIN_SCRIPTS)
@@ -35,10 +35,10 @@ ORB_DIR = "orb_slam3/x86/native_jazzy"
 
 # ─── per-rep metric extractors ───
 def run_eval(gt, tum, align):
-    """ov_eval error_singlerun → {ate_ori, ate_pos, rpe_ori, rpe_pos} (RPE = mean over segments)."""
+    """ov_eval error_singlerun → {ate_ori, ate_pos, rpe:{seg:{ori,pos}}} (rpe per segment length)."""
     res = pr._run_ros2(["ros2", "run", "ov_eval", "error_singlerun", align, gt, tum], timeout=40)
     ate_ori = ate_pos = None
-    rpe_ori, rpe_pos = [], []
+    rpe = {}
     for line in res.stdout.splitlines():
         clean = pr._ANSI_RE.sub("", line).strip()
         if clean.startswith("rmse_ori"):
@@ -50,15 +50,11 @@ def run_eval(gt, tum, align):
             continue
         m = pr._RPE_RE.match(clean)
         if m:
-            rpe_ori.append(float(m.group(2)))
-            rpe_pos.append(float(m.group(3)))
-    return {"ate_ori": ate_ori, "ate_pos": ate_pos,
-            "rpe_ori": statistics.mean(rpe_ori) if rpe_ori else None,
-            "rpe_pos": statistics.mean(rpe_pos) if rpe_pos else None}
+            rpe[int(m.group(1))] = {"ori": float(m.group(2)), "pos": float(m.group(3))}
+    return {"ate_ori": ate_ori, "ate_pos": ate_pos, "rpe": rpe}
 
 
 def timing_stats(timing_csv):
-    """(p50_ms, p99_ms, fps) from the frontend column; fps = 1000/mean."""
     vals = []
     try:
         with open(timing_csv) as f:
@@ -74,8 +70,7 @@ def timing_stats(timing_csv):
         return None
     if not vals:
         return None
-    return (pr.percentile(vals, 50), pr.percentile(vals, 99),
-            1000.0 / statistics.mean(vals))
+    return pr.percentile(vals, 50), pr.percentile(vals, 99), 1000.0 / statistics.mean(vals)
 
 
 def completeness_pct(traj, times_file):
@@ -88,7 +83,6 @@ def completeness_pct(traj, times_file):
 
 
 def track_loss(stdout_log):
-    """ORB-SLAM3 creates a new map (id>0) on track loss; the first map (id 0) is normal init."""
     try:
         n = sum(1 for ln in open(stdout_log) if "Creation of new map with id:" in ln)
         return max(0, n - 1)
@@ -97,13 +91,10 @@ def track_loss(stdout_log):
 
 
 def proc_stats(proc_csv):
-    """(peak_rss_mb, cpu_pct) from /usr/bin/time -v derived CSV."""
     try:
-        h, r = (open(proc_csv).read().splitlines())[0].split(","), \
-               (open(proc_csv).read().splitlines())[1].split(",")
-        rss = float(r[h.index("peak_rss_kb")]) / 1024.0
-        cpu = float(r[h.index("pct_cpu")])
-        return rss, cpu
+        lines = open(proc_csv).read().splitlines()
+        h, r = lines[0].split(","), lines[1].split(",")
+        return float(r[h.index("peak_rss_kb")]) / 1024.0, float(r[h.index("pct_cpu")])
     except (OSError, IndexError, ValueError):
         return None
 
@@ -113,7 +104,7 @@ def ms(vals):
     vals = [v for v in vals if v is not None]
     if not vals:
         return None
-    return (statistics.mean(vals), statistics.stdev(vals) if len(vals) > 1 else 0.0)
+    return statistics.mean(vals), (statistics.stdev(vals) if len(vals) > 1 else 0.0)
 
 
 def cell(agg, prec=3):
@@ -124,17 +115,27 @@ def num(v, prec=1):
     return f"{v:.{prec}f}" if v is not None else "—"
 
 
+def new_metrics():
+    return {k: [] for k in ("ate_ori", "ate_pos", "compl", "loss",
+                            "p50", "p99", "fps", "cpu", "rss")} | \
+           {"rpe_pos_seg": defaultdict(list), "rpe_ori_seg": defaultdict(list)}
+
+
+def add_eval(M, e):
+    M["ate_ori"].append(e["ate_ori"]); M["ate_pos"].append(e["ate_pos"])
+    for seg, v in e["rpe"].items():
+        M["rpe_pos_seg"][seg].append(v["pos"])
+        M["rpe_ori_seg"][seg].append(v["ori"])
+
+
 # ─── per-system evaluation ───
 def eval_orb(root, tag, seq, gt, align):
     base = f"{root}/{ORB_DIR}/{tag}"
     trajs = sorted(glob.glob(f"{base}/{seq}_rep*_trajectory.txt"))
     times_file = f"{base}/{seq}_times.txt"
-    M = {k: [] for k in ("ate_ori", "ate_pos", "rpe_ori", "rpe_pos",
-                          "compl", "loss", "p50", "p99", "fps", "cpu", "rss")}
+    M = new_metrics()
     for t in trajs:
-        e = run_eval(gt, t, align)
-        for k in ("ate_ori", "ate_pos", "rpe_ori", "rpe_pos"):
-            M[k].append(e[k])
+        add_eval(M, run_eval(gt, t, align))
         M["compl"].append(completeness_pct(t, times_file))
         M["loss"].append(track_loss(t.replace("_trajectory.txt", "_stdout.log")))
         ts = timing_stats(t.replace("_trajectory.txt", "_timing.csv"))
@@ -149,37 +150,44 @@ def eval_orb(root, tag, seq, gt, align):
 def eval_openvins(root, seq, gt, align, explicit):
     ests = [explicit] if explicit else sorted(
         glob.glob(f"{root}/**/subscribe/{seq}_*_est.txt", recursive=True))
-    M = {k: [] for k in ("ate_ori", "ate_pos", "rpe_ori", "rpe_pos")}
+    M = new_metrics()
     for e in ests:
         tum = pr._est_to_tum(e)
         try:
-            ev = run_eval(gt, tum, align)
-            for k in M:
-                M[k].append(ev[k])
+            add_eval(M, run_eval(gt, tum, align))
         finally:
             if tum and os.path.exists(tum):
                 os.remove(tum)
     return M, len(ests)
 
 
-def row(sys_, seq, M, n):
-    compl = ms(M.get("compl", []))
-    loss = ms(M.get("loss", []))
-    p50 = ms(M.get("p50", [])); p99 = ms(M.get("p99", []))
-    fps = ms(M.get("fps", [])); cpu = ms(M.get("cpu", [])); rss = ms(M.get("rss", []))
-    lat = (f"{p50[0]:.1f}/{p99[0]:.1f}" if p50 and p99 else "—")
+# ─── rendering ───
+def flat_mean(seg_dict):
+    allv = [v for vals in seg_dict.values() for v in vals if v is not None]
+    return (statistics.mean(allv), statistics.stdev(allv) if len(allv) > 1 else 0.0) if allv else None
+
+
+def summary_row(label, seq, M, n):
+    p50, p99 = ms(M["p50"]), ms(M["p99"])
+    lat = f"{p50[0]:.1f}/{p99[0]:.1f}" if p50 and p99 else "—"
+    fps, cpu, rss = ms(M["fps"]), ms(M["cpu"]), ms(M["rss"])
+    compl, loss = ms(M["compl"]), ms(M["loss"])
     return "| " + " | ".join([
-        sys_, seq,
+        label, seq,
         cell(ms(M["ate_pos"]), 3), cell(ms(M["ate_ori"]), 2),
-        cell(ms(M["rpe_pos"]), 3), cell(ms(M["rpe_ori"]), 2),
-        num(compl[0] if compl else None, 1),
-        num(loss[0] if loss else None, 1),
-        lat,
-        num(fps[0] if fps else None, 1),
-        num(cpu[0] if cpu else None, 0),
-        num(rss[0] if rss else None, 0),
-        str(n),
+        cell(flat_mean(M["rpe_pos_seg"]), 3), cell(flat_mean(M["rpe_ori_seg"]), 2),
+        num(compl[0] if compl else None, 1), num(loss[0] if loss else None, 1),
+        lat, num(fps[0] if fps else None, 1),
+        num(cpu[0] if cpu else None, 0), num(rss[0] if rss else None, 0), str(n),
     ]) + " |"
+
+
+def seg_row(label, seq, seg_dict, segments, prec):
+    cells = [label, seq]
+    for s in segments:
+        cells.append(num(ms(seg_dict.get(s, []))[0] if ms(seg_dict.get(s, [])) else None, prec)
+                     if seg_dict.get(s) else "—")
+    return "| " + " | ".join(cells) + " |"
 
 
 def main():
@@ -192,34 +200,65 @@ def main():
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
-    lines = [
-        f"# VIO comparison — Evaluation-DR §3.1 metrics (align={args.align}, tag={args.tag})",
+    # collect every (label, seq, M, n)
+    rows = []
+    for seq in args.seqs.split(","):
+        gt = f"{GT_DIR}/{seq}.txt"
+        ovM, ovn = eval_openvins(args.root, seq, gt, args.align, args.openvins_est)
+        rows.append(("openvins", seq, ovM, ovn))
+        orbM, orbn = eval_orb(args.root, args.tag, seq, gt, args.align)
+        rows.append(("orb_slam3 (SLAM)", seq, orbM, orbn))
+        vioM, vion = eval_orb(args.root, f"{args.tag}_vioonly", seq, gt, args.align)
+        if vion > 0:
+            rows.append(("orb_slam3 (VIO-only)", seq, vioM, vion))
+
+    # union of segment lengths actually reported by ov_eval
+    segments = sorted({s for _, _, M, _ in rows for s in M["rpe_pos_seg"]})
+    seg_hdr = " | ".join(f"{s} m" for s in segments)
+
+    L = [
+        f"# VIO comparison — Evaluation-DR metrics (align={args.align}, tag={args.tag})",
         "",
         "Aggregated mean ± std over reps. Accuracy via `ov_eval error_singlerun`; "
-        "latency/FPS from per-frame timing; CPU/RSS from `/usr/bin/time -v`.",
-        "RPE is the mean of per-segment medians (8/16/24/32/40 m). ORB-SLAM3 runs in "
-        "**sequential** mode and is reported in two variants: **(SLAM)** = full pipeline "
-        "with loop closure / global BA, and **(VIO-only)** = `loopClosing: 0` (pure "
-        "sliding-window VIO, comparable to OpenVINS/Basalt/SchurVINS). "
-        "**x86 performance figures are illustrative** (DR: perf profiling belongs on "
-        "embedded HW). ORB-SLAM3's backend (local BA) is async, so latency/FPS reflect "
-        "the per-frame tracking front-end.",
+        "latency/FPS from per-frame timing; CPU/RSS from `/usr/bin/time -v`. ORB-SLAM3 runs "
+        "in **sequential** mode, reported as **(SLAM)** (loop closure on) and **(VIO-only)** "
+        "(`loopClosing:0`). **x86 performance figures are illustrative** (DR: perf belongs on "
+        "embedded HW); ORB-SLAM3's backend (local BA) is async, so latency/FPS reflect the "
+        "per-frame tracking front-end.",
+        "",
+        "## §3.1 Summary (RPE columns = mean over segment lengths)",
         "",
         "| System | Seq | ATE-t (m) | ATE-r (°) | RPE-t (m) | RPE-r (°) | Compl % | "
         "Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
-    for seq in args.seqs.split(","):
-        gt = f"{GT_DIR}/{seq}.txt"
-        ovM, ovn = eval_openvins(args.root, seq, gt, args.align, args.openvins_est)
-        orbM, orbn = eval_orb(args.root, args.tag, seq, gt, args.align)
-        vioM, vion = eval_orb(args.root, f"{args.tag}_vioonly", seq, gt, args.align)
-        lines.append(row("openvins", seq, ovM, ovn))
-        lines.append(row("orb_slam3 (SLAM)", seq, orbM, orbn))
-        if vion > 0:
-            lines.append(row("orb_slam3 (VIO-only)", seq, vioM, vion))
+    L += [summary_row(lbl, seq, M, n) for lbl, seq, M, n in rows]
 
-    report = "\n".join(lines)
+    # §2.6 RPE over segment lengths — translation
+    L += [
+        "",
+        "## §2.6 RPE over segment lengths — translation (m)",
+        "",
+        "Local drift accumulated over fixed sub-trajectory lengths (the standard VIO "
+        "drift-rate-over-distance view). Each cell is the mean over reps of `ov_eval`'s "
+        "per-segment median translation error.",
+        "",
+        f"| System | Seq | {seg_hdr} |",
+        "|---|---|" + "---|" * len(segments),
+    ]
+    L += [seg_row(lbl, seq, M["rpe_pos_seg"], segments, 3) for lbl, seq, M, n in rows]
+
+    # §2.6 RPE over segment lengths — rotation
+    L += [
+        "",
+        "## §2.6 RPE over segment lengths — rotation (°)",
+        "",
+        f"| System | Seq | {seg_hdr} |",
+        "|---|---|" + "---|" * len(segments),
+    ]
+    L += [seg_row(lbl, seq, M["rpe_ori_seg"], segments, 2) for lbl, seq, M, n in rows]
+
+    report = "\n".join(L)
     print(report)
     if args.out:
         with open(args.out, "w") as f:
