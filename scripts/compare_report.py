@@ -226,27 +226,29 @@ def eval_openvins(root, tag, seq, gt, align, segments=SEGMENTS):
     _proc.csv (/usr/bin/time -v — SAME method as ORB-SLAM3); completeness/init from
     _est.txt vs the canonical EuRoC frames."""
     base = f"{root}/openvins/x86/native_jazzy/{tag}"
-    est = f"{base}/{seq}_est.txt"
-    if not os.path.exists(est):
+    ests = sorted(glob.glob(f"{base}/{seq}_rep*_est.txt"))
+    if not ests:
         return new_metrics(), 0
+    frames = euroc_frames(seq)
     M = new_metrics()
-    tum = pr._est_to_tum(est)
-    try:
-        add_eval(M, run_eval(gt, tum, align, segments))
-    finally:
-        if tum and os.path.exists(tum):
-            os.remove(tum)
-    rb = robustness_stats(est, euroc_frames(seq))
-    if rb:
-        M["compl"].append(rb["compl"]); M["compl_post"].append(rb["compl_post"])
-        M["init"].append(rb["init"])
-    ts = openvins_timing(f"{base}/{seq}_wall.txt")
-    if ts:
-        M["p50"].append(ts[0]); M["p99"].append(ts[1]); M["fps"].append(ts[2])
-    ps = proc_stats(f"{base}/{seq}_proc.csv")
-    if ps:
-        M["rss"].append(ps[0]); M["cpu"].append(ps[1])
-    return M, 1
+    for est in ests:
+        tum = pr._est_to_tum(est)
+        try:
+            add_eval(M, run_eval(gt, tum, align, segments))
+        finally:
+            if tum and os.path.exists(tum):
+                os.remove(tum)
+        rb = robustness_stats(est, frames)
+        if rb:
+            M["compl"].append(rb["compl"]); M["compl_post"].append(rb["compl_post"])
+            M["init"].append(rb["init"])
+        ts = openvins_timing(est.replace("_est.txt", "_wall.txt"))
+        if ts:
+            M["p50"].append(ts[0]); M["p99"].append(ts[1]); M["fps"].append(ts[2])
+        ps = proc_stats(est.replace("_est.txt", "_proc.csv"))
+        if ps:
+            M["rss"].append(ps[0]); M["cpu"].append(ps[1])
+    return M, len(ests)
 
 
 def eval_basalt(root, tag, seq, gt, align, segments=SEGMENTS):
