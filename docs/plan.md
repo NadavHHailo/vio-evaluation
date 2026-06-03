@@ -114,7 +114,7 @@ All three new systems are non-deterministic by default (multi-threaded frontends
 2. ✅ Local clone at `/home/hailo/workspace/vio-evaluation/` with skeleton (`systems/`, `scripts/adapters/`, `docs/`), `README.md`, `.gitignore`, and `docs/plan.md` (copy of this file).
 3. ✅ Initial commit `72707c5` pushed to `origin/main`.
 
-### Phase 0b — Dataset preparation (ASL + ROS 1 .bag alongside .db3) ✅ ASL DONE; ROS 1 bags deferred to Phase 3
+### Phase 0b — Dataset preparation (ASL + ROS 1 .bag alongside .db3) ✅ DONE (ASL + ROS 1 bags)
 
 `~/datasets/euroc/` had only ROS 2 bags. Added two more formats side-by-side: ASL for
 ORB-SLAM3/Basalt, ROS 1 `.bag` for SchurVINS.
@@ -132,16 +132,14 @@ zips" step is not executable. Two workarounds, both verified:
    `mav0/imu0/data.csv`. Frame counts match EuRoC exactly: V1_01_easy 2912, MH_03_medium 2700,
    V2_02_medium 2348 stereo pairs (3.0 GB total). Calibration yamls are not in the bag and not
    needed (ORB-SLAM3 ships `EuRoC.yaml`; Basalt takes `--cam-calib` JSON).
-2. **ROS 1 `.bag` — DEFERRED to Phase 3** (SchurVINS only; not on the Phase 1/2 critical path).
-   The ETH host is dead here too. The [OpenVINS datasets page](https://docs.openvins.com/gs-datasets.html)
-   mirrors each EuRoC ROS 1 bag on Google Drive (IDs: V1_01_easy `1LFrdiMU6UBjtFfXPHzjJ4L7iDIXcdhvh`,
-   MH_03_medium `1er07gZ8rso8R3Su00hJMm_GZ4z1n9Rpq`, V2_02_medium `1Gj4psmvcAwYwCp4T4CQH-d2ZVJ09d3x2`),
-   but `gdown` currently can't fetch them ("cannot retrieve public link" — Drive access-quota
-   throttling on these popular files). **Host-independent fallback** (preferred, mirrors the ASL
-   approach): convert the local `~/datasets/euroc/<seq>/<seq>.db3` → ROS 1 `.bag` with the
-   `rosbags` library (`rosbags-convert`). The db3 already has `/cam0/image_raw`, `/cam1/image_raw`,
-   `/imu0` — the exact topics SchurVINS' launch consumes — so no re-download is needed. Resolve
-   when Phase 3 begins.
+2. ✅ **ROS 1 `.bag` — built locally from the `.db3`** (SchurVINS). The ETH host is dead and the
+   OpenVINS Google-Drive mirror was access-quota-throttled, so instead of downloading we converted
+   the local ROS 2 bags with `rosbags-convert --src ~/datasets/euroc/<seq> --dst <seq>.bag
+   --include-topic /cam0/image_raw /cam1/image_raw /imu0 --dst-typestore ros1_noetic` →
+   `~/datasets/euroc-ros1/{V1_01_easy,MH_03_medium,V2_02_medium}.bag` (~5.5 GB). Includes only the
+   three topics SchurVINS consumes (skips the custom `asctec_hl_comm/MotorSpeed`). ROS 1 readability
+   is to be confirmed in the Melodic container (Phase 3). Same underlying frames/IMU as every other
+   system → fair.
 3. ✅ **GT sanity check**: reconstructed cam0 first timestamp `1403715273.262143 s` matches the GT
    start in `ov_data/euroc_mav/V1_01_easy.txt` (`1403715273.26214`) to the microsecond — the bag
    preserves original EuRoC sensor timestamps, so ORB-SLAM3's `EuRoC_TimeStamps/<seq>.txt` and the
@@ -186,19 +184,25 @@ Pure-VIO (sliding-window, no loop closure). Same EuRoC **ASL** data as Phase 1.
 
 **Note:** accuracy is now computed with **evo** (`evo_ape`/all-pairs RPE) as the single engine for all systems (the DR's reference tool; validated identical to `ov_eval` on V1_01).
 
-### Phase 3 — SchurVINS (heaviest friction — ROS 1 Melodic in Docker)
+### Phase 3 — SchurVINS ⏸ DEFERRED (blocked: no container runtime on this host)
 
 Last because the integration friction is qualitatively different: SchurVINS' upstream README mandates **Ubuntu 18.04 + ROS 1 Melodic**, both EOL. Neither runs natively on the host (24.04 Noble). Realistic path is a Melodic Docker container, mirroring the `openvins-humble:latest` pattern that `catkin_ws_ov` already uses for `rpi5-T`.
 
-Steps:
-1. Add SchurVINS as a submodule at `vio-evaluation/systems/schurvins/`.
+**Blocker:** no container runtime is installed (docker / podman / apptainer / singularity all absent) and there is **no passwordless sudo** to install one. SchurVINS cannot be built/run until a runtime is available. **Already staged for resumption:** the SchurVINS submodule is added at `systems/schurvins` (`@ d8ab6df`), and the ROS 1 bags are built at `~/datasets/euroc-ros1/`. Resume from step 2 once docker/podman exists.
+
+Steps (resume plan):
+1. ✅ Add SchurVINS as a submodule at `vio-evaluation/systems/schurvins/`.
 2. Write `vio-evaluation/systems/schurvins/Dockerfile` based on `osrf/ros:melodic-desktop`. Install SVO/SchurVINS deps (Eigen, OpenCV 3.x, Sophus, glog, yaml-cpp) and `catkin_make` the SchurVINS workspace inside the image. Pin the base image digest for reproducibility.
 3. System runner mounts `~/datasets/euroc-ros1/` and `~/results/schurvins/` into the container; runs `roslaunch svo_ros euroc_vio_stereo.launch` + a sidecar `rosbag play <seq>.bag --rate 1.0`. Capture the published odometry topic (likely `/svo/pose` or `/svo/odometry` — confirm against the launch file) to a TUM-format file via a thin `rostopic echo` + adapter.
 4. Adapter `adapters/schurvins_to_tum.py`: parse the captured topic dump → canonical `<seq>_trajectory.txt`.
 5. Timing: instrument SchurVINS' frontend/backend dispatch points if no built-in CSV. Worst case, expose only `total` (wall ms per processed frame from log lines) and accept reduced per-stage breakdown.
 6. 5-rep run × 3 sequences; cross-check against numbers in the SchurVINS CVPR 2024 paper Table 2 (ATE on EuRoC).
 
-### Phase 4 — Comparison report
+### Phase 4 — Comparison report ✅ DONE (3 of 4 systems; SchurVINS pending a runtime)
+
+**Current deliverable:** [`docs/comparison.md`](/home/hailo/workspace/vio-evaluation/docs/comparison.md) — auto-generated by `compare_report.py` covering **OpenVINS, ORB-SLAM3 (SLAM + VIO-only), and Basalt** across V1_01/MH_03/V2_02, with the DR §3.1 metric table, §2.6 per-segment RPE tables, and a data-driven Conclusions section (each bullet cites the DR + checks its targets). Accuracy uses **evo** (one engine for all systems). SchurVINS drops in as a 4th system once Phase 3 is unblocked (the report + conclusions regenerate to include it automatically).
+
+Original design notes (now realised, with the evo migration noted):
 
 Once OpenVINS results exist at `~/results/x86/native_jazzy/<tag>/<mode>/` and the three new systems have populated `~/results/<system>/x86/native_jazzy/<tag>/`:
 

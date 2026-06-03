@@ -430,8 +430,9 @@ def conclusions(rows, segments):
     L.append("- **DR coverage & gaps.** Covered: ATE t/r, RPE t/r + per-segment (§2.6), "
              "completeness, init-time, track-loss, latency p50/p99, FPS, CPU, RSS. Open items: "
              "OpenVINS RSS includes the ros2/rosbag2 process tree (upper bound); loop-closure "
-             "precision/recall, map-growth, and power are not yet measured; and the last system "
-             "(SchurVINS) is pending Phase 3.")
+             "precision/recall, map-growth, and power are not yet measured; and SchurVINS is "
+             "deferred — it needs a ROS 1 Melodic container, and no container runtime is available "
+             "on this host (its ROS 1 bags + submodule are staged for when one is).")
     return L
 
 

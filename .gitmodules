@@ -6,3 +6,7 @@
 	path = systems/basalt
 	url = git@github.com:NadavHHailo/basalt.git
 	branch = vio-eval-build
+[submodule "systems/schurvins"]
+	path = systems/schurvins
+	url = git@github.com:NadavHHailo/SchurVINS.git
+	branch = master
