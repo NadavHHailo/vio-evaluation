@@ -2,3 +2,7 @@
 	path = systems/orb_slam3
 	url = git@github.com:NadavHHailo/ORB_SLAM3.git
 	branch = vio-eval-build
+[submodule "systems/basalt"]
+	path = systems/basalt
+	url = git@github.com:NadavHHailo/basalt.git
+	branch = vio-eval-build

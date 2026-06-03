@@ -172,17 +172,19 @@ ORB-SLAM3 first because: ships a ready-made `Examples/Stereo-Inertial/stereo_ine
 5. **Smoke test**: V1_01_easy × 5 reps, then all three × 5 reps once V1_01 looks right. ATE via the reused `error_singlerun` path (TUM input, no `_est_to_tum`). Expect sub-10 cm RMSE (ORB-SLAM3 paper ≈ 0.04 m on V1_01_easy stereo-inertial).
 6. **Gate**: harness is valid when `compare_report.py` emits a table with both `openvins` and `orb_slam3` rows side-by-side — OpenVINS from `~/results/x86/native_jazzy/<tag>/<mode>/<seq>_<N>thr_est.txt` (via `_est_to_tum`), ORB-SLAM3 from `~/results/orb_slam3/x86/native_jazzy/<tag>/<seq>_trajectory.txt` (TUM direct). Timing CSV ≥ 2000 rows. (Note the loop-closure caveat — see Out of scope.)
 
-### Phase 2 — Basalt
+### Phase 2 — Basalt ✅ VALIDATED on V1_01/MH_03/V2_02
 
-Second because: still a standalone CMake build (no ROS dependency for offline VIO), same dataset format (EuRoC ASL) as Phase 1, so the harness scaffold from Phase 1 transfers almost verbatim. Heavier deps than ORB-SLAM3 (TBB, Pangolin, custom Sophus fork) but no Docker/distro juggling.
+Pure-VIO (sliding-window, no loop closure). Same EuRoC **ASL** data as Phase 1.
 
-Steps:
-1. Add Basalt as a submodule at `vio-evaluation/systems/basalt/` (Basalt vendors `basalt-headers` as its own submodule, so a recursive `git submodule update --init --recursive` after adding it picks both up). Build natively (CMake + TBB + Pangolin). Document gotchas in `vio-evaluation/docs/build-basalt.md`.
-2. Reuse the EuRoC calibration JSON shipped in Basalt's `data/euroc_ds_calib.json` if present, or convert from `kalibr_imucam_chain.yaml` if upstream stopped shipping it.
-3. Runner: invoke `basalt_vio --dataset-path ~/datasets/euroc-asl/<seq> --cam-calib <calib.json> --config-path data/euroc_config.json --result-path /tmp/basalt_traj.txt`.
-4. Adapter `adapters/basalt_to_tum.py`: Basalt's trajectory output is already TUM-formatted text — just normalize timestamp units and rename.
-5. Timing: Basalt's `--show-gui` mode logs per-frame stats; offline mode dumps them to stderr — capture and parse.
-6. 5-rep run × 3 sequences; cross-check against Basalt RA-L 2020 Table 2 (ATE on EuRoC).
+**As built (deviations from the original sketch noted inline):**
+1. ✅ `systems/basalt` submodule → `NadavHHailo/basalt` @ `master` (`vio-eval-build` branch). Modern Basalt is **vcpkg-based** (not the old system-deps + `basalt-headers` submodule): its only nested submodule is `thirdparty/vcpkg`, which builds all deps (OpenCV/Boost/Pangolin/opengv/TBB…) from source. Build patches: drop `realsense2` from `vcpkg.json` (pulls `libusb[udev]` → needs `libudev-dev`, no sudo; RealSense unused for EuRoC), drop `-Werror` (gcc-13). Recipe in [`docs/build-basalt.md`](/home/hailo/workspace/vio-evaluation/docs/build-basalt.md).
+2. ✅ Calibration/config: Basalt's shipped `data/euroc_ds_calib.json` + `data/euroc_config.json` (no conversion needed).
+3. ✅ **Runner** [`scripts/run_basalt.sh`](/home/hailo/workspace/vio-evaluation/scripts/run_basalt.sh): `basalt_vio --dataset-type euroc --save-trajectory tum --show-gui 0`, wrapped in `/usr/bin/time -v` (same CPU%/RSS method as the others).
+4. ✅ **Adapter** [`scripts/adapters/basalt_to_tum.py`](/home/hailo/workspace/vio-evaluation/scripts/adapters/basalt_to_tum.py): Basalt's `trajectory.txt` is already TUM in **seconds** (no ns conversion) — just validate + rename.
+5. ✅ **Timing** via [`scripts/adapters/basalt_timing.py`](/home/hailo/workspace/vio-evaluation/scripts/adapters/basalt_timing.py): parse `stats_sums.ubjson` (`measure` = per-frame VIO latency) → canonical `timing.csv` (needs `py-ubjson`).
+6. ✅ 1-rep × 3 sequences (5-rep deferred, as for the other systems). ATE-trans (evo se3): V1_01 0.030, MH_03 0.061, V2_02 0.049 m — paper-ballpark. Basalt: 100% completeness, ~0 s init, lightest RAM (~90 MB), most parallel (~13 cores).
+
+**Note:** accuracy is now computed with **evo** (`evo_ape`/all-pairs RPE) as the single engine for all systems (the DR's reference tool; validated identical to `ov_eval` on V1_01).
 
 ### Phase 3 — SchurVINS (heaviest friction — ROS 1 Melodic in Docker)
 
