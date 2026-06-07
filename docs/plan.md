@@ -220,8 +220,9 @@ Key differences from EuRoC (drive the extra work): (1) **fisheye KB4** calibrati
 
 Status (from the tree; this leg was developed outside the original plan):
 - ✅ Datasets staged for `indoor_45_2_snapdragon_with_gt` (`~/datasets/uzhfpv-{raw,asl,gt}/`); raw bag + ASL + GT. Other sequences in `uzhfpv.md` not yet downloaded.
-- ✅ **Basalt leg validated** (commit `7983425`); `scripts/run_basalt_uzh.sh`, `scripts/uzh_gt_to_tum.py`.
-- 🔶 **ORB-SLAM3 leg in progress** (uncommitted): `scripts/run_orb_slam3_uzh.sh`, `scripts/uzh_calib_to_orbslam3.py`.
+- ✅ Shared UZH prep: `scripts/uzh_bag_to_asl.py` (ROS 1 bag → ASL folder), `scripts/uzh_gt_to_tum.py` (Leica GT → TUM). Datasets staged under `~/datasets/uzhfpv-{raw,asl,gt}/`.
+- ✅ **Basalt leg validated** (commit `7983425`); `scripts/run_basalt_uzh.sh` + `uzh_calib_to_basalt.py` (fisheye DS/EUCM calib).
+- 🔶 **ORB-SLAM3 leg — largely working, uncommitted.** Fisheye via ORB-SLAM3's **`KannalaBrandt8`** model (its TUM-VI fisheye example). `scripts/uzh_calib_to_orbslam3.py` generates `Examples/{Stereo,Monocular}-Inertial/UZH-FPV.yaml` from the UZH Kalibr `camchain-imucam` + `imu.yaml` (sets `IMU.T_b_c1`, `Stereo.T_c1_c2`). `scripts/run_orb_slam3_uzh.sh` runs **stereo-inertial** and **monocular-inertial** (`--mono`; the `mono_inertial_euroc` binary was built for this), supports `--vio-only`, reads `uzhfpv-asl/<seq>` + `uzhfpv-gt/<seq>.txt` under tag `uzhfpv_x86`; it is **idempotent** (skips done reps) and **divergence-tolerant** (no trajectory → empty file → 0% completeness instead of a crash — matters on the hard UZH sequences). Both UZH YAMLs are generated and `indoor_45_2_snapdragon_with_gt` results exist (≥2 reps). **Remaining:** finish the reps/sequences, add an `eval`/UZH comparison table to `compare_report.py` (separate `uzhfpv_x86` tag, with coverage% for partial-GT outdoor), commit the leg, and update the `docs/uzhfpv.md` system table (still lists ORB-SLAM3 as "pending").
 - ✅ Per-dataset camera-view MP4 previews (Git LFS + GitHub release; commit `f126a35`), `scripts/publish_dataset_previews.sh`.
 - ⏭ Remaining: finish the ORB-SLAM3 UZH leg, add OpenVINS (UZH ROS 1 bag → its serial reader) and SchurVINS (pending the same container blocker), download the other UZH sequences, and a UZH comparison table in `comparison.md` (separate from the EuRoC table).
 
