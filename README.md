@@ -1,6 +1,9 @@
 # vio-evaluation
 
-Comparative evaluation of four visual-inertial estimation systems on EuRoC MAV: **OpenVINS**, **Basalt**, **ORB-SLAM3**, **SchurVINS**. Measures trajectory accuracy (ATE/RPE), per-frame runtime, and resource footprint (CPU%, peak RSS) on the same three sequences (V1_01_easy, MH_03_medium, V2_02_medium), against the same ground truth.
+Comparative evaluation of four visual-inertial estimation systems — **OpenVINS**, **Basalt**, **ORB-SLAM3**, **SchurVINS** — on two datasets: **EuRoC MAV** (indoor MAV, pinhole stereo) and the **[UZH-FPV Drone Racing Dataset](https://fpv.ifi.uzh.ch/)** (aggressive drone flight, fisheye stereo). Measures trajectory accuracy (ATE/RPE), per-frame runtime, and resource footprint (CPU%, peak RSS) against the same ground truth per dataset.
+
+- **EuRoC** sequences: V1_01_easy, MH_03_medium, V2_02_medium (5 reps each).
+- **UZH-FPV** sequence: indoor_45_2_snapdragon_with_gt (fisheye; see **[docs/uzhfpv.md](docs/uzhfpv.md)**).
 
 Companion to [`NadavHHailo/open_vins`](https://github.com/NadavHHailo/open_vins) and the existing `catkin_ws_ov` ROS 2 workspace. Where `catkin_ws_ov` benchmarks OpenVINS in isolation ([cross-platform.md](https://github.com/NadavHHailo/openvins-ros2-workspace/blob/master-candidate/docs/cross-platform/cross-platform.md)), this repo extends that work to a four-way comparison.
 
@@ -33,6 +36,10 @@ All four systems run on the same EuRoC sensor recordings against the same ground
 
 Each system's reported wall-ms is the **VIO update time** (frontend + backend), *not* the total including bag/PNG decode — the harness keeps I/O time separate from algorithm time so the comparison stays apples-to-apples. Ground truth is the same `ov_eval`-format file for all four (derived from EuRoC ASL's `state_groundtruth_estimate0/data.csv`).
 
+### UZH-FPV (fisheye drone dataset)
+
+UZH-FPV ships as a single ROS 1 `.bag` per sequence (cameras `/snappy_cam/stereo_{l,r}`, IMU `/snappy_imu`, **ground truth in-bag** on `/groundtruth/pose`) with a **fisheye** (equidistant / Kannala-Brandt) Snapdragon rig — so EuRoC's pinhole calib does not apply. The `scripts/uzh_*` tools (all using the `rosbags` lib, no ROS install needed) extract GT, build a EuRoC-ASL folder + a `.db3`, and generate the per-system fisheye configs from the UZH Kalibr camchain. Full pipeline, per-rig calib, and results: **[docs/uzhfpv.md](docs/uzhfpv.md)**.
+
 ## Layout
 
 ```
@@ -41,13 +48,17 @@ systems/
   basalt/      submodule  → NadavHHailo/basalt     (mirror of VladyslavUsenko/basalt)
   schurvins/   submodule  → NadavHHailo/SchurVINS  (fork of bytedance/SchurVINS)
 scripts/
-  run_system.sh                 entrypoint: <system> <seq> [--reps N]
-  run_eval.sh                   ATE/RPE via ov_eval error_singlerun (from catkin_ws_ov)
+  run_{openvins,basalt,orb_slam3}.sh       EuRoC runners (per system)
+  run_{openvins,basalt,orb_slam3}_uzh.sh   UZH-FPV runners (fisheye; idempotent)
+  uzh_bag_gt_to_tum.py          UZH in-bag GT → ov_eval TUM
+  uzh_bag_to_asl.py             UZH bag → EuRoC-ASL folder (feeds all systems)
+  uzh_calib_to_{basalt,orbslam3,openvins}.py   Kalibr camchain → per-system fisheye configs
   compare_report.py             cross-system aggregator → docs/comparison.md
   adapters/                     per-system trajectory → TUM converters
 docs/
   plan.md                       implementation plan (this work)
   comparison.md                 final report (populated by compare_report.py)
+  uzhfpv.md                     UZH-FPV integration: pipeline, calib, results
   build-{orb_slam3,basalt,schurvins}.md  per-system build notes
 ```
 
@@ -55,12 +66,18 @@ OpenVINS is intentionally **not** a submodule here — it builds inside the exis
 
 ## Status
 
-| Phase | What | State |
-|---|---|---|
-| 0a | Repo bootstrap (this skeleton + plan) | done (commit `72707c5`) |
-| 0b | Download EuRoC ASL + ROS 1 `.bag` distributions | pending |
-| 0c | Fork upstreams (ORB-SLAM3, Basalt, SchurVINS) into `NadavHHailo/` | pending |
-| 1  | ORB-SLAM3 integration + harness validation | pending |
-| 2  | Basalt integration | pending |
-| 3  | SchurVINS integration (Melodic Docker) | pending |
-| 4  | Cross-system comparison report → `docs/comparison.md` | pending |
+**EuRoC** (V1_01_easy, MH_03_medium, V2_02_medium) — done, 5 reps each:
+
+| System | State |
+|---|---|
+| OpenVINS | ✅ done |
+| Basalt | ✅ done |
+| ORB-SLAM3 (SLAM + VIO-only) | ✅ done |
+| SchurVINS | deferred — needs a ROS 1 Melodic container (none on host yet) |
+
+**UZH-FPV** (`indoor_45_2_snapdragon_with_gt`, fisheye) — done, 5 reps each. Headline: on
+aggressive fisheye flight OpenVINS (ATE 0.26 m) and Basalt (0.65 m) survive; ORB-SLAM3 fails
+in all four configs (stereo/mono × SLAM/VIO-only). Details + caveats: **[docs/uzhfpv.md](docs/uzhfpv.md)**.
+
+Open items: other 3 UZH sequences (`indoor_forward_3/7`, `outdoor_forward_1`); `compare_report.py`
+UZH section (coverage%/completeness columns); SchurVINS leg.
