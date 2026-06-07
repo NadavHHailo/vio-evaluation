@@ -129,6 +129,12 @@ def input_frames(seq, root=EUROC_FRAMES_ROOT):
     return _FRAME_CACHE[key]
 
 
+def seq_length(seq, root):
+    """Input-recording duration (s) = last − first cam0 frame timestamp, or None."""
+    ts = input_frames(seq, root)
+    return (ts[-1] - ts[0]) if ts else None
+
+
 def robustness_stats(traj, frames):
     """Return {compl, compl_post, init} given a trajectory file (first column = timestamp,
     works for TUM and OpenVINS state-dump) and the canonical input-frame timestamps:
@@ -292,18 +298,25 @@ def flat_mean(seg_dict):
     return (statistics.mean(allv), statistics.stdev(allv) if len(allv) > 1 else 0.0) if allv else None
 
 
-def summary_row(label, seq, M, n):
+def init_pct(init_s, slen):
+    return (100.0 * init_s / slen) if (init_s is not None and slen) else None
+
+
+def summary_row(label, seq, M, n, frames_root=EUROC_FRAMES_ROOT):
     p50, p99 = ms(M["p50"]), ms(M["p99"])
     lat = f"{p50[0]:.1f}/{p99[0]:.1f}" if p50 and p99 else "—"
     fps, cpu, rss = ms(M["fps"]), ms(M["cpu"]), ms(M["rss"])
     compl, compl_post = ms(M["compl"]), ms(M["compl_post"])
     init, loss = ms(M["init"]), ms(M["loss"])
+    slen = seq_length(seq, frames_root)
+    init_s = init[0] if init else None
     return "| " + " | ".join([
         label, seq,
         cell(ms(M["ate_pos"]), 3), cell(ms(M["ate_ori"]), 2),
         cell(flat_mean(M["rpe_pos_seg"]), 3), cell(flat_mean(M["rpe_ori_seg"]), 2),
         num(compl[0] if compl else None, 1), num(compl_post[0] if compl_post else None, 1),
-        num(init[0] if init else None, 2), num(loss[0] if loss else None, 1),
+        num(slen, 1), num(init_s, 2), num(init_pct(init_s, slen), 1),
+        num(loss[0] if loss else None, 1),
         lat, num(fps[0] if fps else None, 1),
         num(cpu[0] if cpu else None, 0), num(rss[0] if rss else None, 0), str(n),
     ]) + " |"
@@ -322,10 +335,14 @@ def uzh_summary_row(label, seq, M, n):
     lat = f"{p50[0]:.1f}/{p99[0]:.1f}" if p50 and p99 else "—"
     fps, cpu, rss = ms(M["fps"]), ms(M["cpu"]), ms(M["rss"])
     compl, compl_post, cov = ms(M["compl"]), ms(M["compl_post"]), ms(M["cov"])
+    init = ms(M["init"])
+    slen = seq_length(seq, UZH_FRAMES_ROOT)
+    init_s = init[0] if init else None
     return "| " + " | ".join([
         label, seq,
         cell(ms(M["ate_pos"]), 3), cell(ms(M["ate_ori"]), 2),
         num(compl[0] if compl else None, 1), num(compl_post[0] if compl_post else None, 1),
+        num(slen, 1), num(init_s, 2), num(init_pct(init_s, slen), 1),
         num(cov[0] if cov else None, 1),
         lat, num(fps[0] if fps else None, 1),
         num(cpu[0] if cpu else None, 0), num(rss[0] if rss else None, 0), str(n),
@@ -371,9 +388,9 @@ def uzh_section(root, align, seqs, gt_dir, segments):
         "segments unreliable). ORB-SLAM3's near-zero completeness rows are genuine divergence — "
         "its small ATE there is computed over the few frames it briefly tracked.",
         "",
-        "| System | Seq | ATE-t (m) | ATE-r (°) | Compl % | Compl(p-i) % | Cov % | "
-        "Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "| System | Seq | ATE-t (m) | ATE-r (°) | Compl % | Compl(p-i) % | Seq (s) | "
+        "Init (s) | Init % | Cov % | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ] + [uzh_summary_row(lbl, seq, M, n) for lbl, seq, M, n in rows]
 
 
@@ -565,11 +582,12 @@ def main():
         "## §3.1 Summary (RPE columns = mean over segment lengths)",
         "",
         "*Compl %* = poses ÷ all input frames; *Compl(p-i) %* = poses ÷ frames after the first "
-        "pose (tracking continuity, excludes the VI-init warm-up); *Init (s)* = time to first pose.",
+        "pose (tracking continuity, excludes the VI-init warm-up); *Seq (s)* = input-recording "
+        "duration; *Init (s)* = time to first pose; *Init %* = Init ÷ Seq length.",
         "",
         "| System | Seq | ATE-t (m) | ATE-r (°) | RPE-t (m) | RPE-r (°) | Compl % | Compl(p-i) % | "
-        "Init (s) | Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "Seq (s) | Init (s) | Init % | Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     L += [summary_row(lbl, seq, M, n) for lbl, seq, M, n in rows]
 

@@ -18,22 +18,22 @@ The left-camera (`cam0`) image stream for each sequence, encoded to MP4 (H.264, 
 
 ## §3.1 Summary (RPE columns = mean over segment lengths)
 
-*Compl %* = poses ÷ all input frames; *Compl(p-i) %* = poses ÷ frames after the first pose (tracking continuity, excludes the VI-init warm-up); *Init (s)* = time to first pose.
+*Compl %* = poses ÷ all input frames; *Compl(p-i) %* = poses ÷ frames after the first pose (tracking continuity, excludes the VI-init warm-up); *Seq (s)* = input-recording duration; *Init (s)* = time to first pose; *Init %* = Init ÷ Seq length.
 
-| System | Seq | ATE-t (m) | ATE-r (°) | RPE-t (m) | RPE-r (°) | Compl % | Compl(p-i) % | Init (s) | Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| openvins | V1_01_easy | 0.038 ± 0.000 | 0.53 ± 0.00 | 0.049 ± 0.005 | 0.48 ± 0.07 | 95.3 | 99.1 | 5.60 | — | 11.0/25.1 | 80.8 | 144 | 2131 | 5 |
-| orb_slam3 (SLAM) | V1_01_easy | 0.019 ± 0.001 | 0.41 ± 0.01 | 0.027 ± 0.002 | 0.42 ± 0.03 | 96.5 | 100.0 | 5.15 | 0.0 | 27.7/36.1 | 36.3 | 322 | 807 | 5 |
-| orb_slam3 (VIO-only) | V1_01_easy | 0.020 ± 0.001 | 0.42 ± 0.01 | 0.029 ± 0.002 | 0.42 ± 0.03 | 96.5 | 100.0 | 5.15 | 0.0 | 27.9/36.8 | 35.9 | 321 | 801 | 5 |
-| basalt | V1_01_easy | 0.030 ± 0.000 | 0.60 ± 0.00 | 0.043 ± 0.003 | 0.49 ± 0.06 | 100.0 | 100.0 | 0.00 | — | 9.5/18.4 | 103.8 | 1335 | 94 | 5 |
-| openvins | MH_03_medium | 0.114 ± 0.000 | 1.18 ± 0.00 | 0.126 ± 0.015 | 0.61 ± 0.23 | 85.3 | 99.6 | 19.45 | — | 10.9/26.2 | 83.5 | 150 | 1984 | 5 |
-| orb_slam3 (SLAM) | MH_03_medium | 0.028 ± 0.001 | 1.12 ± 0.02 | 0.088 ± 0.018 | 0.54 ± 0.23 | 86.4 | 100.0 | 18.33 | 0.0 | 28.7/38.5 | 35.3 | 329 | 834 | 5 |
-| orb_slam3 (VIO-only) | MH_03_medium | 0.028 ± 0.001 | 1.14 ± 0.01 | 0.090 ± 0.018 | 0.55 ± 0.23 | 86.4 | 100.0 | 18.40 | 0.0 | 28.4/38.7 | 35.6 | 325 | 829 | 5 |
-| basalt | MH_03_medium | 0.061 ± 0.000 | 1.28 ± 0.00 | 0.117 ± 0.018 | 0.61 ± 0.22 | 100.0 | 100.0 | 0.00 | — | 11.3/22.7 | 86.9 | 1397 | 93 | 5 |
-| openvins | V2_02_medium | 0.047 ± 0.000 | 1.20 ± 0.00 | 0.065 ± 0.009 | 1.36 ± 0.12 | 96.3 | 99.7 | 4.04 | — | 11.0/22.5 | 84.9 | 151 | 1741 | 5 |
-| orb_slam3 (SLAM) | V2_02_medium | 0.017 ± 0.006 | 0.87 ± 0.02 | 0.032 ± 0.005 | 1.14 ± 0.09 | 96.9 | 100.0 | 3.60 | 0.0 | 28.1/36.2 | 36.1 | 336 | 828 | 5 |
-| orb_slam3 (VIO-only) | V2_02_medium | 0.024 ± 0.003 | 0.89 ± 0.02 | 0.041 ± 0.004 | 1.13 ± 0.08 | 96.9 | 100.0 | 3.60 | 0.0 | 27.4/35.0 | 36.9 | 333 | 823 | 5 |
-| basalt | V2_02_medium | 0.049 ± 0.000 | 0.81 ± 0.00 | 0.071 ± 0.011 | 1.06 ± 0.13 | 100.0 | 100.0 | 0.00 | — | 8.7/16.7 | 114.4 | 1199 | 92 | 5 |
+| System | Seq | ATE-t (m) | ATE-r (°) | RPE-t (m) | RPE-r (°) | Compl % | Compl(p-i) % | Seq (s) | Init (s) | Init % | Trk-loss | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| openvins | V1_01_easy | 0.038 ± 0.000 | 0.53 ± 0.00 | 0.049 ± 0.005 | 0.48 ± 0.07 | 95.3 | 99.1 | 145.6 | 5.60 | 3.8 | — | 11.0/25.1 | 80.8 | 144 | 2131 | 5 |
+| orb_slam3 (SLAM) | V1_01_easy | 0.019 ± 0.001 | 0.41 ± 0.01 | 0.027 ± 0.002 | 0.42 ± 0.03 | 96.5 | 100.0 | 145.6 | 5.15 | 3.5 | 0.0 | 27.7/36.1 | 36.3 | 322 | 807 | 5 |
+| orb_slam3 (VIO-only) | V1_01_easy | 0.020 ± 0.001 | 0.42 ± 0.01 | 0.029 ± 0.002 | 0.42 ± 0.03 | 96.5 | 100.0 | 145.6 | 5.15 | 3.5 | 0.0 | 27.9/36.8 | 35.9 | 321 | 801 | 5 |
+| basalt | V1_01_easy | 0.030 ± 0.000 | 0.60 ± 0.00 | 0.043 ± 0.003 | 0.49 ± 0.06 | 100.0 | 100.0 | 145.6 | 0.00 | 0.0 | — | 9.5/18.4 | 103.8 | 1335 | 94 | 5 |
+| openvins | MH_03_medium | 0.114 ± 0.000 | 1.18 ± 0.00 | 0.126 ± 0.015 | 0.61 ± 0.23 | 85.3 | 99.6 | 134.9 | 19.45 | 14.4 | — | 10.9/26.2 | 83.5 | 150 | 1984 | 5 |
+| orb_slam3 (SLAM) | MH_03_medium | 0.028 ± 0.001 | 1.12 ± 0.02 | 0.088 ± 0.018 | 0.54 ± 0.23 | 86.4 | 100.0 | 134.9 | 18.33 | 13.6 | 0.0 | 28.7/38.5 | 35.3 | 329 | 834 | 5 |
+| orb_slam3 (VIO-only) | MH_03_medium | 0.028 ± 0.001 | 1.14 ± 0.01 | 0.090 ± 0.018 | 0.55 ± 0.23 | 86.4 | 100.0 | 134.9 | 18.40 | 13.6 | 0.0 | 28.4/38.7 | 35.6 | 325 | 829 | 5 |
+| basalt | MH_03_medium | 0.061 ± 0.000 | 1.28 ± 0.00 | 0.117 ± 0.018 | 0.61 ± 0.22 | 100.0 | 100.0 | 134.9 | 0.00 | 0.0 | — | 11.3/22.7 | 86.9 | 1397 | 93 | 5 |
+| openvins | V2_02_medium | 0.047 ± 0.000 | 1.20 ± 0.00 | 0.065 ± 0.009 | 1.36 ± 0.12 | 96.3 | 99.7 | 117.3 | 4.04 | 3.4 | — | 11.0/22.5 | 84.9 | 151 | 1741 | 5 |
+| orb_slam3 (SLAM) | V2_02_medium | 0.017 ± 0.006 | 0.87 ± 0.02 | 0.032 ± 0.005 | 1.14 ± 0.09 | 96.9 | 100.0 | 117.3 | 3.60 | 3.1 | 0.0 | 28.1/36.2 | 36.1 | 336 | 828 | 5 |
+| orb_slam3 (VIO-only) | V2_02_medium | 0.024 ± 0.003 | 0.89 ± 0.02 | 0.041 ± 0.004 | 1.13 ± 0.08 | 96.9 | 100.0 | 117.3 | 3.60 | 3.1 | 0.0 | 27.4/35.0 | 36.9 | 333 | 823 | 5 |
+| basalt | V2_02_medium | 0.049 ± 0.000 | 0.81 ± 0.00 | 0.071 ± 0.011 | 1.06 ± 0.13 | 100.0 | 100.0 | 117.3 | 0.00 | 0.0 | — | 8.7/16.7 | 114.4 | 1199 | 92 | 5 |
 
 ## §2.6 RPE over segment lengths — translation (m)
 
@@ -75,14 +75,14 @@ Local drift accumulated over fixed sub-trajectory lengths (the standard VIO drif
 
 Aggressive quadrotor flight on the fisheye Snapdragon rig (pipeline + per-rig calib: [docs/uzhfpv.md](uzhfpv.md)). Same evo SE3-aligned engine as the EuRoC tables. **Cov %** = fraction of estimate poses with a GT match — UZH ground truth is partial (even indoors), so ATE/RPE reflect only that subset; read ATE *together with* Cov % and completeness, never alone. Per-segment RPE is omitted here (partial GT makes fixed-length segments unreliable). ORB-SLAM3's near-zero completeness rows are genuine divergence — its small ATE there is computed over the few frames it briefly tracked.
 
-| System | Seq | ATE-t (m) | ATE-r (°) | Compl % | Compl(p-i) % | Cov % | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| openvins | indoor_45_2_snapdragon_with_gt | 0.263 ± 0.000 | 0.94 ± 0.00 | 48.6 | 54.3 | 72.6 | 17.1/40.9 | 50.8 | 179 | 1279 | 5 |
-| basalt | indoor_45_2_snapdragon_with_gt | 0.651 ± 0.000 | 2.46 ± 0.00 | 100.0 | 100.0 | 64.4 | 4.8/10.5 | 198.2 | 1127 | 80 | 5 |
-| orb_slam3 stereo (SLAM) | indoor_45_2_snapdragon_with_gt | 0.043 ± 0.000 | 0.75 ± 0.00 | 4.4 | 83.3 | 24.7 | 23.0/39.3 | 42.2 | 471 | 837 | 5 |
-| orb_slam3 stereo (VIO-only) | indoor_45_2_snapdragon_with_gt | 0.046 ± 0.008 | 2.68 ± 0.17 | 7.8 | 90.0 | 24.7 | 22.7/38.0 | 42.9 | 476 | 837 | 5 |
-| orb_slam3 mono (SLAM) | indoor_45_2_snapdragon_with_gt | — | — | 2.2 | 100.0 | — | — | — | 104 | 659 | 5 |
-| orb_slam3 mono (VIO-only) | indoor_45_2_snapdragon_with_gt | — | — | 2.1 | 100.0 | — | — | — | 128 | 664 | 5 |
+| System | Seq | ATE-t (m) | ATE-r (°) | Compl % | Compl(p-i) % | Seq (s) | Init (s) | Init % | Cov % | Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| openvins | indoor_45_2_snapdragon_with_gt | 0.263 ± 0.000 | 0.94 ± 0.00 | 48.6 | 54.3 | 74.6 | 7.09 | 9.5 | 72.6 | 17.1/40.9 | 50.8 | 179 | 1279 | 5 |
+| basalt | indoor_45_2_snapdragon_with_gt | 0.651 ± 0.000 | 2.46 ± 0.00 | 100.0 | 100.0 | 74.6 | 0.00 | 0.0 | 64.4 | 4.8/10.5 | 198.2 | 1127 | 80 | 5 |
+| orb_slam3 stereo (SLAM) | indoor_45_2_snapdragon_with_gt | 0.043 ± 0.000 | 0.75 ± 0.00 | 4.4 | 83.3 | 74.6 | 71.30 | 95.5 | 24.7 | 23.0/39.3 | 42.2 | 471 | 837 | 5 |
+| orb_slam3 stereo (VIO-only) | indoor_45_2_snapdragon_with_gt | 0.046 ± 0.008 | 2.68 ± 0.17 | 7.8 | 90.0 | 74.6 | 68.64 | 92.0 | 24.7 | 22.7/38.0 | 42.9 | 476 | 837 | 5 |
+| orb_slam3 mono (SLAM) | indoor_45_2_snapdragon_with_gt | — | — | 2.2 | 100.0 | 74.6 | 73.05 | 97.9 | — | — | — | 104 | 659 | 5 |
+| orb_slam3 mono (VIO-only) | indoor_45_2_snapdragon_with_gt | — | — | 2.1 | 100.0 | 74.6 | 73.10 | 97.9 | — | — | — | 128 | 664 | 5 |
 
 ## Conclusions
 
