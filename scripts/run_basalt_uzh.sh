@@ -69,6 +69,9 @@ thr_args=(); [ "$THREADS" != 0 ] && thr_args=(--num-threads "$THREADS")
 echo "[BASALT-UZH $SEQ] reps=$REPS; threads=${THREADS:-default}; calib=$CALIB; out=$OUT"
 
 for i in $(seq 0 $((REPS-1))); do
+  if [ -f "$OUT/${SEQ}_rep${i}_trajectory.txt" ]; then
+    echo "[BASALT-UZH $SEQ] rep $i already present — skipping (idempotent)"; continue
+  fi
   WORK="$(mktemp -d)"
   echo "[BASALT-UZH $SEQ] rep $i ..."
   ( cd "$WORK" && /usr/bin/time -v -o time.log \

@@ -72,15 +72,34 @@ python3 scripts/uzh_calib_to_basalt.py \
 > lives inside the `systems/basalt` submodule and is a generated artifact —
 > regenerate with the command above rather than committing it to the parent repo.
 
-## Status
+## Status — all three systems run on `indoor_45_2_snapdragon_with_gt` (5 reps each)
+
+| System | ATE-trans (m) | Completeness | Coverage vs GT | Notes |
+|---|---|---|---|---|
+| **OpenVINS** | **0.263** | 49% | 73% | best; equidistant `uzhfpv_indoor_45` config, ~serial 4-thr |
+| **Basalt** | 0.651 | 100% | 64% | sliding-window VIO, ~4.8 ms/frame |
+| **ORB-SLAM3** stereo (SLAM / VIO-only) | (0.04) | **3% / 8%** | 25% | ❌ diverges — ATE is over the few tracked frames only |
+| **ORB-SLAM3** mono (SLAM / VIO-only) | — | ~2% / ~0% | 0% | ❌ diverges entirely (no GT overlap) |
+
+**Finding:** on aggressive fisheye drone flight, the filter (OpenVINS) and sliding-window
+optimizer (Basalt) survive; the feature-based front-end (ORB-SLAM3) fails in **all four**
+configurations (stereo/mono × SLAM/VIO-only) — IMU init repeatedly fails and tracking is
+lost. The parenthesised ORB-SLAM3 ATEs are a trap: tiny only because computed over the
+3–8 % of frames it briefly tracked — **completeness is the honest metric there.**
+
+Runners (idempotent, skip existing reps; diverged reps recorded as empty trajectories):
+[run_basalt_uzh.sh](../scripts/run_basalt_uzh.sh),
+[run_orb_slam3_uzh.sh](../scripts/run_orb_slam3_uzh.sh) (`--mono` / `--vio-only`),
+[run_openvins_uzh.sh](../scripts/run_openvins_uzh.sh). Calib generators:
+[uzh_calib_to_basalt.py](../scripts/uzh_calib_to_basalt.py),
+[uzh_calib_to_orbslam3.py](../scripts/uzh_calib_to_orbslam3.py) (`--mono`),
+[uzh_calib_to_openvins.py](../scripts/uzh_calib_to_openvins.py) (cv::FileStorage-strict layout).
 
 | Leg | State |
 |---|---|
-| **Basalt** (`indoor_45_2`) | ✅ validated end-to-end: ATE-trans **0.651 m**, ATE-rot **2.45°**, GT coverage **64.4%** (GT 49.4 s of the 74.7 s flight), ~4.8 ms/frame |
-| Basalt other 3 seqs | pending — download `indoor_forward_3/7` + `outdoor_forward_1` and their calib zips |
-| **ORB-SLAM3** | pending — write `UZH-FPV.yaml` (`Camera.type: KannalaBrandt8`) from the same calib numbers, run mono-inertial first on the ASL folder |
-| **OpenVINS** | pending — `rosbags-convert` bag→`.db3` remapping to `/cam0/image_raw`,`/cam1/image_raw`,`/imu0`; estimator YAML with `cam0_distortion_model: equidistant` |
-| **Report** | pending — `compare_report.py` needs `--gt-dir`/`--frames-root` flags + a coverage% column (EuRoC-specific `conclusions()` bullets self-skip on UZH seq names) |
+| Basalt / OpenVINS / ORB-SLAM3 on `indoor_45_2` | ✅ done (5 reps each) |
+| Other 3 UZH seqs (`indoor_forward_3/7`, `outdoor_forward_1`) | pending — download + per-rig calib zips |
+| **Report** | pending — `compare_report.py` needs `--gt-dir`/`--frames-root` flags + coverage% / completeness columns |
 
-> **Coverage is partial even indoors** (64% on `indoor_45_2`), so report coverage%
+> **Coverage is partial even indoors** (64–73% on `indoor_45_2`), so report coverage%
 > next to ATE for every UZH sequence, not just outdoor.
