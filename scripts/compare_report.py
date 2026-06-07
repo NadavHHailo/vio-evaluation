@@ -41,6 +41,10 @@ SEGMENTS = (8, 16, 24, 32, 40)
 
 GT_DIR = os.path.expanduser("~/workspace/catkin_ws_ov/src/open_vins/ov_data/euroc_mav")
 ORB_DIR = "orb_slam3/x86/native_jazzy"
+EUROC_FRAMES_ROOT = "~/datasets/euroc-asl"
+# UZH-FPV (fisheye) — separate dataset, rendered in its own section.
+UZH_GT_DIR = os.path.expanduser("~/datasets/uzhfpv-gt")
+UZH_FRAMES_ROOT = "~/datasets/uzhfpv-asl"
 DR_URL = ("https://hailotech.atlassian.net/wiki/spaces/PhysicalAI/pages/3270180866/"
           "VIO+and+SLAM+-+Evaluation+DR")
 
@@ -58,10 +62,14 @@ def run_eval(gt, tum, align, segments=SEGMENTS):
     try:
         ref = file_interface.read_tum_trajectory_file(gt)
         est = file_interface.read_tum_trajectory_file(tum)
+        n_est = est.num_poses
         ref, est = sync.associate_trajectories(ref, est, max_diff=0.01)
+        # coverage = fraction of estimate poses that have a GT match (UZH GT is
+        # partial — even indoors — so this guards against reading ATE as full-trajectory).
+        cov = (100.0 * est.num_poses / n_est) if n_est else None
         est.align(ref, correct_scale=(align == "sim3"))
     except Exception:
-        return {"ate_ori": None, "ate_pos": None, "rpe": {}}
+        return {"ate_ori": None, "ate_pos": None, "rpe": {}, "cov": None}
 
     def ape(rel):
         m = metrics.APE(rel)
@@ -83,7 +91,7 @@ def run_eval(gt, tum, align, segments=SEGMENTS):
             rpe[L] = vals
         except Exception:
             pass  # segment longer than the trajectory → no pairs; skip (as ov_eval did)
-    return {"ate_ori": ate_ori, "ate_pos": ate_pos, "rpe": rpe}
+    return {"ate_ori": ate_ori, "ate_pos": ate_pos, "rpe": rpe, "cov": cov}
 
 
 def timing_stats(timing_csv):
@@ -108,15 +116,17 @@ def timing_stats(timing_csv):
 _FRAME_CACHE = {}
 
 
-def euroc_frames(seq):
+def input_frames(seq, root=EUROC_FRAMES_ROOT):
     """Canonical input-frame timestamps (s) for a sequence — the cam0 frames of the
-    shared EuRoC recording (same for every system). Cached per sequence."""
-    if seq not in _FRAME_CACHE:
-        d = os.path.expanduser(f"~/datasets/euroc-asl/{seq}/mav0/cam0/data")
+    shared recording (same for every system), under <root>/<seq>/mav0/cam0/data.
+    Cached per (seq, root)."""
+    key = (seq, root)
+    if key not in _FRAME_CACHE:
+        d = os.path.expanduser(f"{root}/{seq}/mav0/cam0/data")
         ts = sorted(int(os.path.splitext(f)[0]) / 1e9 for f in os.listdir(d)
                     if f.endswith(".png")) if os.path.isdir(d) else []
-        _FRAME_CACHE[seq] = ts
-    return _FRAME_CACHE[seq]
+        _FRAME_CACHE[key] = ts
+    return _FRAME_CACHE[key]
 
 
 def robustness_stats(traj, frames):
@@ -187,22 +197,23 @@ def num(v, prec=1):
 
 def new_metrics():
     return {k: [] for k in ("ate_ori", "ate_pos", "compl", "compl_post", "init", "loss",
-                            "p50", "p99", "fps", "cpu", "rss")} | \
+                            "p50", "p99", "fps", "cpu", "rss", "cov")} | \
            {"rpe_pos_seg": defaultdict(list), "rpe_ori_seg": defaultdict(list)}
 
 
 def add_eval(M, e):
     M["ate_ori"].append(e["ate_ori"]); M["ate_pos"].append(e["ate_pos"])
+    M["cov"].append(e.get("cov"))
     for seg, v in e["rpe"].items():
         M["rpe_pos_seg"][seg].append(v["pos"])
         M["rpe_ori_seg"][seg].append(v["ori"])
 
 
 # ─── per-system evaluation ───
-def eval_orb(root, tag, seq, gt, align, segments=SEGMENTS):
+def eval_orb(root, tag, seq, gt, align, segments=SEGMENTS, frames_root=EUROC_FRAMES_ROOT):
     base = f"{root}/{ORB_DIR}/{tag}"
     trajs = sorted(glob.glob(f"{base}/{seq}_rep*_trajectory.txt"))
-    frames = euroc_frames(seq)
+    frames = input_frames(seq, frames_root)
     M = new_metrics()
     for t in trajs:
         add_eval(M, run_eval(gt, t, align, segments))
@@ -220,16 +231,16 @@ def eval_orb(root, tag, seq, gt, align, segments=SEGMENTS):
     return M, len(trajs)
 
 
-def eval_openvins(root, tag, seq, gt, align, segments=SEGMENTS):
+def eval_openvins(root, tag, seq, gt, align, segments=SEGMENTS, frames_root=EUROC_FRAMES_ROOT):
     """Read OpenVINS outputs from run_openvins.sh under openvins/<arch>/<env>/<tag>/.
     Accuracy from _est.txt (ov_eval); latency/FPS from _wall.txt; CPU% + peak RSS from
     _proc.csv (/usr/bin/time -v — SAME method as ORB-SLAM3); completeness/init from
-    _est.txt vs the canonical EuRoC frames."""
+    _est.txt vs the canonical input frames."""
     base = f"{root}/openvins/x86/native_jazzy/{tag}"
     ests = sorted(glob.glob(f"{base}/{seq}_rep*_est.txt"))
     if not ests:
         return new_metrics(), 0
-    frames = euroc_frames(seq)
+    frames = input_frames(seq, frames_root)
     M = new_metrics()
     for est in ests:
         tum = pr._est_to_tum(est)
@@ -251,14 +262,14 @@ def eval_openvins(root, tag, seq, gt, align, segments=SEGMENTS):
     return M, len(ests)
 
 
-def eval_basalt(root, tag, seq, gt, align, segments=SEGMENTS):
+def eval_basalt(root, tag, seq, gt, align, segments=SEGMENTS, frames_root=EUROC_FRAMES_ROOT):
     """Read Basalt outputs from run_basalt.sh under basalt/<arch>/<env>/<tag>/.
     Accuracy from <seq>_rep*_trajectory.txt (TUM, seconds); latency/FPS from
     <seq>_rep*_timing.csv (per-frame `measure`); CPU%/RSS from _proc.csv
     (/usr/bin/time -v). Basalt is pure VIO with no map-reset, so track-loss is left blank."""
     base = f"{root}/basalt/x86/native_jazzy/{tag}"
     trajs = sorted(glob.glob(f"{base}/{seq}_rep*_trajectory.txt"))
-    frames = euroc_frames(seq)
+    frames = input_frames(seq, frames_root)
     M = new_metrics()
     for t in trajs:
         add_eval(M, run_eval(gt, t, align, segments))
@@ -304,6 +315,66 @@ def seg_row(label, seq, seg_dict, segments, prec):
         cells.append(num(ms(seg_dict.get(s, []))[0] if ms(seg_dict.get(s, [])) else None, prec)
                      if seg_dict.get(s) else "—")
     return "| " + " | ".join(cells) + " |"
+
+
+def uzh_summary_row(label, seq, M, n):
+    p50, p99 = ms(M["p50"]), ms(M["p99"])
+    lat = f"{p50[0]:.1f}/{p99[0]:.1f}" if p50 and p99 else "—"
+    fps, cpu, rss = ms(M["fps"]), ms(M["cpu"]), ms(M["rss"])
+    compl, compl_post, cov = ms(M["compl"]), ms(M["compl_post"]), ms(M["cov"])
+    return "| " + " | ".join([
+        label, seq,
+        cell(ms(M["ate_pos"]), 3), cell(ms(M["ate_ori"]), 2),
+        num(compl[0] if compl else None, 1), num(compl_post[0] if compl_post else None, 1),
+        num(cov[0] if cov else None, 1),
+        lat, num(fps[0] if fps else None, 1),
+        num(cpu[0] if cpu else None, 0), num(rss[0] if rss else None, 0), str(n),
+    ]) + " |"
+
+
+# UZH-FPV variants: (display label, eval fn, results tag). ORB-SLAM3 is run in four
+# configs (stereo/mono × SLAM/VIO-only), each under its own tag.
+UZH_VARIANTS = [
+    ("openvins", eval_openvins, "uzhfpv_x86"),
+    ("basalt", eval_basalt, "uzhfpv_x86"),
+    ("orb_slam3 stereo (SLAM)", eval_orb, "uzhfpv_x86"),
+    ("orb_slam3 stereo (VIO-only)", eval_orb, "uzhfpv_x86_vioonly"),
+    ("orb_slam3 mono (SLAM)", eval_orb, "uzhfpv_mono_x86"),
+    ("orb_slam3 mono (VIO-only)", eval_orb, "uzhfpv_mono_x86_vioonly"),
+]
+
+
+def uzh_section(root, align, seqs, gt_dir, segments):
+    """Build the standalone UZH-FPV (fisheye) section. Separate from the EuRoC tables:
+    different camera model, partial GT, and EuRoC-specific conclusion targets don't apply.
+    Adds a Cov% column so partial-GT rows aren't misread as full-trajectory."""
+    rows = []
+    for seq in seqs:
+        gt = f"{gt_dir}/{seq}.txt"
+        if not os.path.exists(gt):
+            continue
+        for label, fn, tag in UZH_VARIANTS:
+            M, n = fn(root, tag, seq, gt, align, segments, frames_root=UZH_FRAMES_ROOT)
+            if n > 0:
+                rows.append((label, seq, M, n))
+    if not rows:
+        return []
+    return [
+        "",
+        "## UZH-FPV (fisheye drone) — accuracy + robustness",
+        "",
+        "Aggressive quadrotor flight on the fisheye Snapdragon rig (pipeline + per-rig calib: "
+        "[docs/uzhfpv.md](uzhfpv.md)). Same evo SE3-aligned engine as the EuRoC tables. "
+        "**Cov %** = fraction of estimate poses with a GT match — UZH ground truth is partial "
+        "(even indoors), so ATE/RPE reflect only that subset; read ATE *together with* Cov % and "
+        "completeness, never alone. Per-segment RPE is omitted here (partial GT makes fixed-length "
+        "segments unreliable). ORB-SLAM3's near-zero completeness rows are genuine divergence — "
+        "its small ATE there is computed over the few frames it briefly tracked.",
+        "",
+        "| System | Seq | ATE-t (m) | ATE-r (°) | Compl % | Compl(p-i) % | Cov % | "
+        "Lat p50/p99 (ms) | FPS | CPU % | RSS (MB) | reps |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ] + [uzh_summary_row(lbl, seq, M, n) for lbl, seq, M, n in rows]
 
 
 def conclusions(rows, segments):
@@ -446,6 +517,9 @@ def main():
     ap.add_argument("--seqs", default="V1_01_easy,MH_03_medium,V2_02_medium")
     ap.add_argument("--segments", default=",".join(map(str, SEGMENTS)),
                     help="RPE segment lengths in m (comma-separated)")
+    ap.add_argument("--uzh-seqs", default="indoor_45_2_snapdragon_with_gt",
+                    help="UZH-FPV (fisheye) sequences for the separate section ('' to skip)")
+    ap.add_argument("--uzh-gt-dir", default=UZH_GT_DIR)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
     seg_lengths = tuple(int(s) for s in args.segments.split(","))
@@ -522,6 +596,10 @@ def main():
         "|---|---|" + "---|" * len(segments),
     ]
     L += [seg_row(lbl, seq, M["rpe_ori_seg"], segments, 2) for lbl, seq, M, n in rows]
+
+    # Separate UZH-FPV (fisheye) section — different camera model + partial GT.
+    uzh_seqs = [s for s in args.uzh_seqs.split(",") if s]
+    L += uzh_section(args.root, args.align, uzh_seqs, args.uzh_gt_dir, seg_lengths)
 
     L += conclusions(rows, segments)
 
