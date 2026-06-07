@@ -4,6 +4,18 @@ Metric definitions, targets, and methodology follow the **[VIO and SLAM — Eval
 
 Aggregated mean ± std over reps. Accuracy (ATE/RPE) via **[evo](https://github.com/MichaelGrupp/evo)** (Umeyama SE3-aligned), one uniform engine for all systems; latency/FPS from per-frame timing; CPU/RSS from `/usr/bin/time -v`. ORB-SLAM3 runs in **sequential** mode, reported as **(SLAM)** (loop closure on) and **(VIO-only)** (`loopClosing:0`). **x86 performance figures are illustrative** (DR: perf belongs on embedded HW); ORB-SLAM3's backend (local BA) is async, so latency/FPS reflect the per-frame tracking front-end. **OpenVINS runs in serial mode, 4 threads**; latency/FPS use its per-frame `total` update time, and CPU%/RSS come from `/usr/bin/time -v` — the same whole-process method as ORB-SLAM3. Caveat: OpenVINS runs via `ros2 launch` + rosbag2 (reading the `.db3`), so its CPU/RSS include that process-tree overhead, whereas ORB-SLAM3 is a bare binary reading PNGs — RSS especially is an upper bound for OpenVINS.
 
+## Dataset previews (camera view)
+
+The left-camera (`cam0`) image stream for each sequence, encoded to MP4 (H.264, 30 fps) straight from the dataset's PNG frames — **no IMU data**, just what the VIO front-ends see. The three EuRoC sequences below are the ones measured in the tables; `indoor_45_2_snapdragon` (UZH-FPV) is included as an additional, harder aggressive-flight preview. Videos play inline on GitHub from the [`dataset-previews` release](https://github.com/NadavHHailo/vio-evaluation/releases/tag/dataset-previews) and are also versioned in-tree under [`videos/`](../videos/) via Git LFS.
+
+| V1_01_easy (EuRoC) | MH_03_medium (EuRoC) |
+|---|---|
+| <video src="https://github.com/NadavHHailo/vio-evaluation/releases/download/dataset-previews/V1_01_easy.mp4" controls width="380"></video> | <video src="https://github.com/NadavHHailo/vio-evaluation/releases/download/dataset-previews/MH_03_medium.mp4" controls width="380"></video> |
+| **V2_02_medium (EuRoC)** | **indoor_45_2_snapdragon (UZH-FPV)** |
+| <video src="https://github.com/NadavHHailo/vio-evaluation/releases/download/dataset-previews/V2_02_medium.mp4" controls width="380"></video> | <video src="https://github.com/NadavHHailo/vio-evaluation/releases/download/dataset-previews/indoor_45_2_snapdragon.mp4" controls width="380"></video> |
+
+> If a cell shows a broken link instead of a player, the release assets haven't been uploaded yet — see `videos/` for the local files.
+
 ## §3.1 Summary (RPE columns = mean over segment lengths)
 
 *Compl %* = poses ÷ all input frames; *Compl(p-i) %* = poses ÷ frames after the first pose (tracking continuity, excludes the VI-init warm-up); *Init (s)* = time to first pose.
